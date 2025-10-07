@@ -34,27 +34,10 @@ class WhatsappUsersTable
                     ->placeholder('未设置昵称'),
                 TextColumn::make('phone_number')
                     ->label('手机号')
-                    ->formatStateUsing(function ($record) {
-                        // 使用格式化后的手机号显示
-                        $formatted = $record->formatted_phone_number;
-                        
-                        // 如果是异常格式，添加警告图标
-                        if ($record->hasAbnormalPhoneNumber()) {
-                            return $formatted . ' ⚠️';
-                        }
-                        
-                        return $formatted;
-                    })
                     ->searchable()
                     ->sortable()
                     ->copyable()
-                    ->copyMessage('手机号已复制')
-                    ->tooltip(function ($record) {
-                        if ($record->hasAbnormalPhoneNumber()) {
-                            return '原始手机号: ' . $record->phone_number . "\n⚠️ 检测到异常格式";
-                        }
-                        return '原始手机号: ' . $record->phone_number;
-                    }),
+                    ->copyMessage('手机号已复制'),
                 TextColumn::make('group_id')
                     ->label('群组ID')
                     ->formatStateUsing(function ($record) {

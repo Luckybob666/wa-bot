@@ -37,56 +37,16 @@ if (!fsSync.existsSync(config.sessionsDir)) {
 }
 
 // ==================== 工具函数 ====================
-const utils = {
-    ensureGroupId: (gid) => gid.endsWith('@g.us') ? gid : `${gid}@g.us`,
-    
-    // 改进的手机号提取逻辑
-    jidToPhone: (jid) => {
-        if (!jid) return '';
-        
-        // 提取 @ 符号前的部分
-        const phonePart = jid.split('@')[0];
-        
-        // 处理包含冒号的情况（如：60123456789:16@s.whatsapp.net）
-        const cleanPhone = phonePart.split(':')[0];
-        
-        // 验证手机号格式（应该是纯数字）
-        if (!/^\d+$/.test(cleanPhone)) {
-            console.warn(`⚠️  异常的手机号格式: ${jid} -> ${cleanPhone}`);
-            return cleanPhone; // 仍然返回，但记录警告
-        }
-        
-        // 检查长度是否合理（7-15位数字）
-        if (cleanPhone.length < 7 || cleanPhone.length > 15) {
-            console.warn(`⚠️  手机号长度异常: ${cleanPhone} (长度: ${cleanPhone.length})`);
-        }
-        
-        return cleanPhone;
-    },
-    
-    // 格式化手机号显示
-    formatPhoneNumber: (phone) => {
-        if (!phone) return '';
-        
-        // 移除所有非数字字符
-        const digits = phone.replace(/\D/g, '');
-        
-        // 如果长度异常，直接返回
-        if (digits.length < 7 || digits.length > 15) {
-            return phone; // 返回原始值
-        }
-        
-        // 格式化显示（添加国家代码前缀）
-        if (digits.length > 10) {
-            // 国际号码格式：+60 12-345 6789
-            const countryCode = digits.slice(0, -10);
-            const localNumber = digits.slice(-10);
-            return `+${countryCode} ${localNumber.slice(0, 2)}-${localNumber.slice(2, 5)} ${localNumber.slice(5)}`;
-        } else {
-            // 本地号码格式：012-345 6789
-            return `${digits.slice(0, 3)}-${digits.slice(3, 6)} ${digits.slice(6)}`;
-        }
-    },
+ const utils = {
+     ensureGroupId: (gid) => gid.endsWith('@g.us') ? gid : `${gid}@g.us`,
+     // 规范化提取手机号：去除设备后缀(:xx)、仅保留数字
+     jidToPhone: (jid) => {
+         if (!jid) return '';
+         const left = String(jid).split('@')[0];
+         const noDevice = left.split(':')[0];
+         const digits = noDevice.replace(/\D/g, '');
+         return digits;
+     },
     
     // 清理会话文件
     async deleteSessionFiles(sessionId) {
@@ -138,13 +98,9 @@ const laravel = {
     },
     
     async syncMember(sessionId, groupId, member) {
-        // 格式化手机号用于存储
-        const formattedPhone = utils.formatPhoneNumber(member.phone);
-        
         return this.request(`/api/bots/${sessionId}/sync-group-user-phone`, {
             groupId,
-            phoneNumber: member.phone, // 原始手机号
-            formattedPhone, // 格式化后的手机号
+            phoneNumber: member.phone,
             isAdmin: member.isAdmin,
             joinedAt: new Date().toISOString()
         });
@@ -206,16 +162,27 @@ async function handleConnectionUpdate(sessionId, ctx, update) {
     if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
-        
+
         console.log(`❌ 机器人 #${sessionId} 断开 [${statusCode || 'unknown'}]`);
-        
+
+        // 初始化断线统计（用于保护误删）
+        ctx.disconnectStats = ctx.disconnectStats || { loggedOutCount: 0 };
+
         if (isLoggedOut) {
-            // 会话过期，清理文件
-            console.log(`🔑 机器人 #${sessionId} 会话已过期，需要重新登录`);
-            ctx.status = 'close';
-            sessions.delete(sessionId);
-            await utils.deleteSessionFiles(sessionId);
-            await laravel.updateStatus(sessionId, 'offline', null, '会话已过期，请重新扫码');
+            ctx.disconnectStats.loggedOutCount++;
+            // 只有连续触发两次 401 才真正清理会话，防止重启期间误判
+            if (ctx.disconnectStats.loggedOutCount >= 2) {
+                console.log(`🔑 机器人 #${sessionId} 会话确认过期(401x${ctx.disconnectStats.loggedOutCount})，清理会话文件`);
+                ctx.status = 'close';
+                sessions.delete(sessionId);
+                await utils.deleteSessionFiles(sessionId);
+                await laravel.updateStatus(sessionId, 'offline', null, '会话已过期，请重新扫码');
+                return;
+            } else {
+                console.log(`⚠️  收到 401，但暂不清理(第 ${ctx.disconnectStats.loggedOutCount} 次)，等待下一次确认`);
+                // 等待下一次事件，不删除、不重建，给到人工干预空间
+                return;
+            }
         } else if (statusCode === 515 || statusCode === 428) {
             // 配对成功，需要重启
             console.log(`🔄 机器人 #${sessionId} 配对成功，重启中...`);
@@ -251,7 +218,8 @@ async function createSession(sessionId) {
         state,
         saveCreds,
         status: 'connecting',
-        lastQR: null
+        lastQR: null,
+        disconnectStats: { loggedOutCount: 0 }
     };
     
     sessions.set(sessionId, ctx);

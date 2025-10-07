@@ -478,27 +478,8 @@ Route::post('/bots/{id}/sync-group-user-phone', function (Request $request, $id)
             ], 404);
         }
 
-        // 处理手机号码
+        // 只存储手机号码，不获取详细信息
         $phoneNumber = $request->input('phoneNumber');
-        $formattedPhone = $request->input('formattedPhone');
-        
-        // 验证和清理手机号
-        if (empty($phoneNumber)) {
-            \Log::error("手机号为空", ['request_data' => $request->all()]);
-            return response()->json([
-                'success' => false,
-                'message' => '手机号不能为空'
-            ], 400);
-        }
-        
-        // 记录异常的手机号格式
-        if (strlen($phoneNumber) > 15 || !preg_match('/^\d+$/', $phoneNumber)) {
-            \Log::warning("检测到异常手机号格式", [
-                'phone_number' => $phoneNumber,
-                'length' => strlen($phoneNumber),
-                'formatted_phone' => $formattedPhone
-            ]);
-        }
 
         // 查找或创建 WhatsApp 用户（只存储手机号码）
         $whatsappUser = \App\Models\WhatsappUser::updateOrCreate(
@@ -506,7 +487,7 @@ Route::post('/bots/{id}/sync-group-user-phone', function (Request $request, $id)
                 'phone_number' => $phoneNumber,
             ],
             [
-                'nickname' => '未设置昵称', // 设置默认昵称
+                'nickname' => null, // 不获取昵称
                 'profile_picture' => null, // 不获取头像
             ]
         );
