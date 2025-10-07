@@ -67,7 +67,47 @@ class WhatsappUser extends Model
      */
     public function getDisplayNameAttribute(): string
     {
-        return $this->nickname ?: $this->phone_number;
+        return $this->nickname ?: $this->getFormattedPhoneNumberAttribute();
+    }
+    
+    /**
+     * 获取格式化的手机号
+     */
+    public function getFormattedPhoneNumberAttribute(): string
+    {
+        if (!$this->phone_number) return '';
+        
+        // 移除所有非数字字符
+        $digits = preg_replace('/\D/', '', $this->phone_number);
+        
+        // 检查长度是否合理
+        if (strlen($digits) < 7 || strlen($digits) > 15) {
+            return $this->phone_number; // 返回原始值
+        }
+        
+        // 格式化显示
+        if (strlen($digits) > 10) {
+            // 国际号码格式：+60 12-345 6789
+            $countryCode = substr($digits, 0, -10);
+            $localNumber = substr($digits, -10);
+            return "+{$countryCode} " . substr($localNumber, 0, 2) . "-" . 
+                   substr($localNumber, 2, 3) . " " . substr($localNumber, 5);
+        } else {
+            // 本地号码格式：012-345 6789
+            return substr($digits, 0, 3) . "-" . substr($digits, 3, 3) . " " . 
+                   substr($digits, 6);
+        }
+    }
+    
+    /**
+     * 检查手机号是否异常
+     */
+    public function hasAbnormalPhoneNumber(): bool
+    {
+        if (!$this->phone_number) return false;
+        
+        $digits = preg_replace('/\D/', '', $this->phone_number);
+        return strlen($digits) > 15 || !preg_match('/^\d+$/', $digits);
     }
 
     /**

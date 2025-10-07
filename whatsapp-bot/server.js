@@ -39,7 +39,54 @@ if (!fsSync.existsSync(config.sessionsDir)) {
 // ==================== 工具函数 ====================
 const utils = {
     ensureGroupId: (gid) => gid.endsWith('@g.us') ? gid : `${gid}@g.us`,
-    jidToPhone: (jid) => (jid || '').split('@')[0],
+    
+    // 改进的手机号提取逻辑
+    jidToPhone: (jid) => {
+        if (!jid) return '';
+        
+        // 提取 @ 符号前的部分
+        const phonePart = jid.split('@')[0];
+        
+        // 处理包含冒号的情况（如：60123456789:16@s.whatsapp.net）
+        const cleanPhone = phonePart.split(':')[0];
+        
+        // 验证手机号格式（应该是纯数字）
+        if (!/^\d+$/.test(cleanPhone)) {
+            console.warn(`⚠️  异常的手机号格式: ${jid} -> ${cleanPhone}`);
+            return cleanPhone; // 仍然返回，但记录警告
+        }
+        
+        // 检查长度是否合理（7-15位数字）
+        if (cleanPhone.length < 7 || cleanPhone.length > 15) {
+            console.warn(`⚠️  手机号长度异常: ${cleanPhone} (长度: ${cleanPhone.length})`);
+        }
+        
+        return cleanPhone;
+    },
+    
+    // 格式化手机号显示
+    formatPhoneNumber: (phone) => {
+        if (!phone) return '';
+        
+        // 移除所有非数字字符
+        const digits = phone.replace(/\D/g, '');
+        
+        // 如果长度异常，直接返回
+        if (digits.length < 7 || digits.length > 15) {
+            return phone; // 返回原始值
+        }
+        
+        // 格式化显示（添加国家代码前缀）
+        if (digits.length > 10) {
+            // 国际号码格式：+60 12-345 6789
+            const countryCode = digits.slice(0, -10);
+            const localNumber = digits.slice(-10);
+            return `+${countryCode} ${localNumber.slice(0, 2)}-${localNumber.slice(2, 5)} ${localNumber.slice(5)}`;
+        } else {
+            // 本地号码格式：012-345 6789
+            return `${digits.slice(0, 3)}-${digits.slice(3, 6)} ${digits.slice(6)}`;
+        }
+    },
     
     // 清理会话文件
     async deleteSessionFiles(sessionId) {
@@ -91,9 +138,13 @@ const laravel = {
     },
     
     async syncMember(sessionId, groupId, member) {
+        // 格式化手机号用于存储
+        const formattedPhone = utils.formatPhoneNumber(member.phone);
+        
         return this.request(`/api/bots/${sessionId}/sync-group-user-phone`, {
             groupId,
-            phoneNumber: member.phone,
+            phoneNumber: member.phone, // 原始手机号
+            formattedPhone, // 格式化后的手机号
             isAdmin: member.isAdmin,
             joinedAt: new Date().toISOString()
         });
