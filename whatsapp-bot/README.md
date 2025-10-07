@@ -1,11 +1,20 @@
-# WhatsApp 机器人服务器
+# WhatsApp 机器人服务器 v2.1
 
 ## 🎯 架构说明
 
 本项目采用 **Laravel 主控 + Node.js 服务** 的架构：
 
 - **Laravel 后台**：完全控制机器人（创建、启动、停止、查看数据）
-- **Node.js 服务**：提供 HTTP API，执行 WhatsApp 连接操作
+- **Node.js 服务**：提供 HTTP API，执行 WhatsApp 连接操作（基于 Baileys 库）
+
+## ✨ 特性
+
+- 🚀 优化的代码结构（从 619 行精简到 400+ 行）
+- 🔄 自动处理会话过期和重连
+- 🧹 智能清理过期会话
+- 📱 稳定的扫码登录流程
+- 🔌 支持多机器人同时运行
+- 📊 实时状态同步到 Laravel
 
 ## 🚀 快速开始
 
@@ -15,7 +24,15 @@
 npm install
 ```
 
-### 2. 启动服务器
+### 2. 配置环境变量（可选）
+
+创建 `.env` 文件：
+```env
+PORT=3000
+LARAVEL_URL=http://localhost:89
+```
+
+### 3. 启动服务器
 
 ```bash
 # 方式1：双击启动脚本（Windows）
@@ -28,9 +45,9 @@ npm start
 npm run dev
 ```
 
-### 3. 验证服务器运行
+### 4. 验证服务器运行
 
-访问 `http://localhost:3000` 应该能看到服务器正在运行。
+访问 `http://localhost:3000` 应该能看到服务器状态。
 
 ### 4. 在 Laravel 后台操作
 
@@ -42,32 +59,73 @@ npm run dev
 
 ## 📡 API 接口
 
-Node.js 服务器提供以下 API：
+### 核心接口
 
-### 启动机器人
-```
+#### 1. 启动机器人
+```http
 POST /api/bot/:botId/start
-Body: { "laravelUrl": "http://localhost:89", "apiToken": "" }
 ```
 
-### 停止机器人
+**响应**：
+```json
+{
+  "success": true,
+  "message": "机器人启动中",
+  "data": {
+    "botId": "1",
+    "status": "connecting"
+  }
+}
 ```
+
+#### 2. 停止机器人
+```http
 POST /api/bot/:botId/stop
+Content-Type: application/json
+
+{
+  "deleteFiles": true  // 可选：是否删除会话文件
+}
 ```
 
-### 获取 QR 码
-```
-GET /api/bot/:botId/qr-code
-```
-
-### 获取机器人状态
-```
-GET /api/bot/:botId/status
+#### 3. 获取机器人状态
+```http
+GET /api/bot/:botId
 ```
 
-### 获取群组列表
+**响应**：
+```json
+{
+  "success": true,
+  "botId": "1",
+  "status": "online",  // connecting | online | offline | close
+  "hasQR": false,
+  "qr": null  // QR 码 base64（如果有）
+}
 ```
-GET /api/bot/:botId/groups
+
+#### 4. 同步群组
+```http
+POST /api/bot/:botId/sync-groups
+```
+
+#### 5. 同步群组用户
+```http
+POST /api/bot/:botId/sync-group-users
+Content-Type: application/json
+
+{
+  "groupId": "120363xxxxx@g.us"
+}
+```
+
+### 辅助接口
+
+```http
+GET /                          # 健康检查
+GET /sessions                  # 列出所有会话
+GET /sessions/:id/qr           # 获取 QR 码（兼容旧版）
+GET /sessions/:id/status       # 获取状态（兼容旧版）
 ```
 
 ## 🔄 工作流程
@@ -111,27 +169,78 @@ GET /api/bot/:botId/groups
    - 在群组管理中查看所有群组
    - 在用户管理中查看用户进群情况
 
+## 🧹 清理过期会话
+
+当出现 **错误 401（会话已过期）** 时，需要清理旧的会话文件：
+
+```bash
+# 清理所有会话
+node cleanup-sessions.js
+
+# 清理指定会话
+node cleanup-sessions.js 1
+
+# 或者通过 API 停止并删除
+curl -X POST http://localhost:3000/api/bot/1/stop \
+  -H "Content-Type: application/json" \
+  -d '{"deleteFiles": true}'
+```
+
+清理后在 Laravel 后台重新启动机器人，会生成新的二维码。
+
 ## 🔧 故障排查
 
-### 问题1：无法启动服务器
-- 检查 3000 端口是否被占用
-- 确认 Node.js 已安装
-- 查看错误日志
+### ❌ 错误 401：会话已过期
 
-### 问题2：Laravel 无法连接到 Node.js
-- 确认 Node.js 服务器正在运行
-- 检查端口配置（默认 3000）
-- 确认防火墙设置
+**原因**：WhatsApp 凭据已失效或被其他设备登录
 
-### 问题3：QR 码不显示
-- 检查浏览器控制台错误
-- 刷新页面重试
-- 重新启动机器人
+**解决方案**：
+```bash
+# 1. 清理过期会话
+node cleanup-sessions.js 1
 
-### 问题4：扫码后无法连接
-- 检查 WhatsApp 版本是否最新
-- 确认网络连接正常
-- 删除 `.wwebjs_auth/bot_*` 文件夹重试
+# 2. 在 Laravel 后台重新启动机器人
+# 3. 重新扫码登录
+```
+
+### ❌ 错误 515/428：配对重启失败
+
+**原因**：扫码成功但重连失败
+
+**解决方案**：
+- 已自动重试，等待 3 秒
+- 如果持续失败，重启 Node.js 服务器
+- 检查网络连接
+
+### ❌ 无法启动服务器
+
+**检查项**：
+- 3000 端口是否被占用
+- Node.js 版本是否 >= 16
+- 依赖是否已安装（`npm install`）
+
+### ❌ Laravel 无法连接到 Node.js
+
+**检查项**：
+- Node.js 服务器是否运行中
+- 端口配置是否正确（默认 3000）
+- 防火墙是否阻止连接
+
+### ❌ QR 码不显示
+
+**解决方案**：
+1. 检查浏览器控制台错误
+2. 刷新 Laravel 页面
+3. 重新启动机器人
+4. 查看 Node.js 日志
+
+### ❌ 扫码后连接失败
+
+**解决方案**：
+1. 确认 WhatsApp 版本最新
+2. 检查网络连接是否稳定
+3. 清理会话后重试
+4. 检查是否被 WhatsApp 限制（频繁登录/登出）
 
 ## 🎯 多机器人支持
 
