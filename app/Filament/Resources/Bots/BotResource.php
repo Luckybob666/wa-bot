@@ -6,7 +6,6 @@ use App\Filament\Resources\Bots\Pages\CreateBot;
 use App\Filament\Resources\Bots\Pages\EditBot;
 use App\Filament\Resources\Bots\Pages\ListBots;
 use App\Filament\Resources\Bots\Pages\ViewBot;
-use App\Filament\Resources\Bots\Pages\ConnectBot;
 use App\Filament\Resources\Bots\Schemas\BotForm;
 use App\Filament\Resources\Bots\Schemas\BotInfolist;
 use App\Filament\Resources\Bots\Tables\BotsTable;
@@ -60,7 +59,6 @@ class BotResource extends Resource
             'create' => CreateBot::route('/create'),
             'view' => ViewBot::route('/{record}'),
             'edit' => EditBot::route('/{record}/edit'),
-            'connect' => ConnectBot::route('/{record}/connect'),
         ];
     }
 }
