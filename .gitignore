@@ -1,0 +1,48 @@
+# Laravel
+/vendor/
+/node_modules/
+/public/hot
+/public/storage
+/storage/*.key
+/storage/logs/*.log
+.env
+.env.backup
+.env.production
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+/.fleet
+/.idea
+/.vscode
+
+# Node.js
+whatsapp-bot/node_modules/
+whatsapp-bot/sessions/
+whatsapp-bot/.env
+whatsapp-bot/logs/
+whatsapp-bot/*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+
+# Cache
+bootstrap/cache/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+
+# Build artifacts
+/public/build/
+/public/mix-manifest.json
