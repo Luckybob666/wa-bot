@@ -19,13 +19,13 @@ class AdminUserSeeder extends Seeder
             ['email' => 'admin@admin.com'],
             [
                 'name' => '管理员',
-                'password' => Hash::make('Aaa123123'),
+                'password' => Hash::make('Aaa123123@'),
                 'email_verified_at' => now(),
             ]
         );
 
         $this->command->info('默认管理员账号已创建：');
         $this->command->info('邮箱：admin@admin.com');
-        $this->command->info('密码：Aaa123123');
+        $this->command->info('密码：Aaa123123@');
     }
 }
