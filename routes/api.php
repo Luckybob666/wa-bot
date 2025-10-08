@@ -94,6 +94,73 @@ Route::get('/bots/{id}/qr-code', function ($id) {
     }
 });
 
+// 配对码接口
+Route::post('/bots/{id}/pairing-code', function (Request $request, $id) {
+    try {
+        \Log::info("收到配对码请求，机器人 ID: {$id}");
+        \Log::info("请求数据: " . json_encode($request->all()));
+        
+        $bot = Bot::findOrFail($id);
+        
+        $pairingCode = $request->input('pairingCode');
+        $phoneNumber = $request->input('phoneNumber');
+        
+        if (empty($pairingCode)) {
+            \Log::error("配对码数据为空");
+            return response()->json([
+                'success' => false,
+                'message' => '配对码不能为空'
+            ], 400);
+        }
+        
+        // 将配对码和手机号存储到缓存中，5分钟过期
+        Cache::put("bot_{$id}_pairing_code", $pairingCode, 300); // 5分钟
+        if (!empty($phoneNumber)) {
+            Cache::put("bot_{$id}_phone_number", $phoneNumber, 300); // 5分钟
+        }
+        
+        \Log::info("机器人 #{$id} 配对码已更新: {$pairingCode} (手机号: {$phoneNumber})");
+        
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'pairingCode' => $pairingCode,
+                'phoneNumber' => $phoneNumber,
+                'hasPairingCode' => !empty($pairingCode)
+            ]
+        ]);
+    } catch (\Exception $e) {
+        \Log::error("处理配对码失败: " . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage()
+        ], 500);
+    }
+});
+
+// 获取配对码
+Route::get('/bots/{id}/pairing-code', function ($id) {
+    try {
+        // 从缓存获取配对码和手机号
+        $pairingCode = Cache::get("bot_{$id}_pairing_code");
+        $phoneNumber = Cache::get("bot_{$id}_phone_number");
+        
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'pairingCode' => $pairingCode,
+                'phoneNumber' => $phoneNumber,
+                'hasPairingCode' => !empty($pairingCode)
+            ]
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage()
+        ], 500);
+    }
+});
+
 // 机器人状态更新接口
 Route::post('/bots/{id}/status', function (Request $request, $id) {
     $bot = Bot::findOrFail($id);
@@ -543,6 +610,101 @@ Route::post('/bots/{id}/sync-group-user-phone', function (Request $request, $id)
         return response()->json([
             'success' => false,
             'message' => '用户手机号码同步失败: ' . $e->getMessage()
+        ], 500);
+    }
+});
+
+// 同步群组用户（完整信息，包括 LID 用户）
+Route::post('/bots/{id}/sync-group-user', function (Request $request, $id) {
+    try {
+        \Log::info("收到用户完整信息同步请求", [
+            'bot_id' => $id,
+            'request_data' => $request->all()
+        ]);
+
+        $bot = Bot::findOrFail($id);
+
+        // 查找群组
+        $group = Group::where('bot_id', $bot->id)
+                      ->where('group_id', $request->input('groupId'))
+                      ->first();
+
+        if (!$group) {
+            \Log::error("群组不存在", [
+                'bot_id' => $bot->id,
+                'group_id' => $request->input('groupId')
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => '群组不存在'
+            ], 404);
+        }
+
+        $phoneNumber = $request->input('phoneNumber');
+        $whatsappUserId = $request->input('whatsappUserId');
+        $jid = $request->input('jid');
+
+        // 创建或更新 WhatsApp 用户
+        $whatsappUser = \App\Models\WhatsappUser::updateOrCreate(
+            [
+                'phone_number' => $phoneNumber ?: null,
+                'whatsapp_user_id' => $whatsappUserId,
+            ],
+            [
+                'jid' => $jid,
+                'nickname' => null,
+                'profile_picture' => null,
+            ]
+        );
+
+        \Log::info("用户完整信息创建/更新成功", [
+            'user_id' => $whatsappUser->id,
+            'phone_number' => $phoneNumber,
+            'whatsapp_user_id' => $whatsappUserId,
+            'jid' => $jid
+        ]);
+
+        // 处理日期时间格式
+        $joinedAt = $request->input('joinedAt');
+        if ($joinedAt) {
+            $joinedAt = \Carbon\Carbon::parse($joinedAt)->format('Y-m-d H:i:s');
+        } else {
+            $joinedAt = now();
+        }
+
+        // 创建群组用户关系
+        \DB::table('group_whatsapp_user')->updateOrInsert(
+            [
+                'group_id' => $group->id,
+                'whatsapp_user_id' => $whatsappUser->id,
+            ],
+            [
+                'joined_at' => $joinedAt,
+                'is_admin' => $request->input('isAdmin', false),
+                'left_at' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
+        );
+
+        \Log::info("群组用户关系创建成功", [
+            'group_id' => $group->id,
+            'user_id' => $whatsappUser->id
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => '用户完整信息同步成功',
+            'data' => [
+                'group_id' => $group->id,
+                'whatsapp_user_id' => $whatsappUser->id,
+            ]
+        ]);
+    } catch (\Exception $e) {
+        \Log::error("同步用户完整信息失败: " . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage()
         ], 500);
     }
 });

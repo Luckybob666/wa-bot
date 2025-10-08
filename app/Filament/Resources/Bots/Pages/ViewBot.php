@@ -15,9 +15,7 @@ use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
-use Filament\Schemas\Components\TextInput;
-use Filament\Schemas\Components\Select;
-use Filament\Forms\Components\Actions\Action as FormAction;
+use Filament\Actions\Action;
 
 class ViewBot extends ViewRecord
 {
@@ -67,39 +65,6 @@ class ViewBot extends ViewRecord
                             ]),
                     ]),
                 
-                // 登录方式选择
-                Section::make('WhatsApp 登录')
-                    ->visible(fn () => $this->record->status === 'offline')
-                    ->components([
-                        Grid::make(2)
-                            ->components([
-                                Select::make('loginType')
-                                    ->label('登录方式')
-                                    ->options([
-                                        'qr' => '二维码登录',
-                                        'sms' => '验证码登录'
-                                    ])
-                                    ->default('qr')
-                                    ->reactive()
-                                    ->afterStateUpdated(fn () => $this->showSmsForm = $this->loginType === 'sms'),
-                                
-                                TextInput::make('phoneNumber')
-                                    ->label('手机号')
-                                    ->placeholder('例如：60123456789')
-                                    ->visible(fn () => $this->loginType === 'sms')
-                                    ->required(fn () => $this->loginType === 'sms')
-                                    ->mask('999999999999999')
-                                    ->helperText('请输入完整的手机号（包含国家代码，如：60123456789）'),
-                            ]),
-                        
-                        Actions\Action::make('start_connection')
-                            ->label(fn () => $this->loginType === 'qr' ? '生成二维码' : '获取验证码')
-                            ->icon(fn () => $this->loginType === 'qr' ? 'heroicon-o-qr-code' : 'heroicon-o-device-phone-mobile')
-                            ->color('success')
-                            ->action('startBot')
-                            ->disabled(fn () => $this->loginType === 'sms' && empty($this->phoneNumber)),
-                    ]),
-                
                 // QR 码显示区域
                 Section::make('扫码登录')
                     ->visible(fn () => $this->record->status === 'connecting' && $this->loginType === 'qr')
@@ -127,6 +92,8 @@ class ViewBot extends ViewRecord
             ]);
     }
 
+    protected string $view = 'filament.resources.bots.pages.view-bot';
+
     public function mount(int | string $record): void
     {
         parent::mount($record);
@@ -143,14 +110,53 @@ class ViewBot extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            // 二维码登录按钮
+            Actions\Action::make('start_qr')
+                ->label('二维码登录')
+                ->icon('heroicon-o-qr-code')
+                ->color('success')
+                ->visible(fn () => $this->record->status === 'offline')
+                ->action(function () {
+                    $this->loginType = 'qr';
+                    $this->startBot();
+                }),
+            
+            // 验证码登录按钮
+            Actions\Action::make('start_sms')
+                ->label('验证码登录')
+                ->icon('heroicon-o-device-phone-mobile')
+                ->color('success')
+                ->visible(fn () => $this->record->status === 'offline')
+                ->form([
+                    \Filament\Forms\Components\TextInput::make('phoneNumber')
+                        ->label('手机号')
+                        ->placeholder('例如：60123456789')
+                        ->required()
+                        ->mask('999999999999999')
+                        ->helperText('请输入完整的手机号（包含国家代码，如：60123456789）'),
+                ])
+                ->action(function (array $data) {
+                    $this->phoneNumber = $data['phoneNumber'];
+                    $this->loginType = 'sms';
+                    $this->startBot();
+                }),
+            
+            // 断开连接按钮
             Actions\Action::make('disconnect_whatsapp')
                 ->label('断开连接')
                 ->icon('heroicon-o-x-mark')
                 ->color('danger')
-                ->visible(fn () => $this->record->status === 'online')
+                ->visible(fn () => in_array($this->record->status, ['online', 'connecting']))
                 ->requiresConfirmation()
+                ->modalHeading('确认断开连接')
+                ->modalDescription(fn () => match($this->record->status) {
+                    'online' => '确定要断开 WhatsApp 连接吗？',
+                    'connecting' => '确定要停止当前连接并清理会话吗？',
+                    default => '确定要断开连接吗？'
+                })
                 ->action('stopBot'),
             
+            // 同步群组按钮
             Actions\Action::make('sync_groups')
                 ->label('同步群组')
                 ->icon('heroicon-o-arrow-path')
@@ -158,6 +164,7 @@ class ViewBot extends ViewRecord
                 ->visible(fn () => $this->record->status === 'online')
                 ->action('syncGroups'),
             
+            // 刷新状态按钮
             Actions\Action::make('refresh_status')
                 ->label('刷新状态')
                 ->icon('heroicon-o-arrow-path')
@@ -219,6 +226,8 @@ class ViewBot extends ViewRecord
                     
                     $this->record->update(['status' => 'connecting']);
                     $this->record->refresh();
+                    
+                    // 立即开始轮询
                     $this->startPolling();
                     
                     Notification::make()
@@ -262,23 +271,45 @@ class ViewBot extends ViewRecord
             $nodeUrl = config('app.node_server.url');
             $timeout = config('app.node_server.timeout', 10);
             
-            $response = Http::timeout($timeout)->post($nodeUrl . '/api/bot/' . $this->record->id . '/stop');
+            // 根据当前状态决定是否删除会话文件
+            $deleteFiles = $this->record->status === 'connecting';
             
-            $this->record->refresh();
+            $response = Http::timeout($timeout)->post($nodeUrl . '/api/bot/' . $this->record->id . '/stop', [
+                'deleteFiles' => $deleteFiles
+            ]);
+            
+            // 清理状态
             $this->qrCode = null;
             $this->pairingCode = null;
             $this->isPolling = false;
+            $this->loginType = 'qr'; // 重置登录类型
+            
+            // 强制更新状态为离线
+            $this->record->update(['status' => 'offline']);
+            $this->record->refresh();
+            
+            $message = $deleteFiles ? '连接已停止，会话文件已清理' : 'WhatsApp 连接已断开';
             
             Notification::make()
                 ->title('机器人已停止')
-                ->body('WhatsApp 连接已断开')
+                ->body($message)
                 ->success()
                 ->send();
+                
         } catch (\Exception $e) {
+            // 即使 Node.js 服务不可用，也要清理本地状态
+            $this->qrCode = null;
+            $this->pairingCode = null;
+            $this->isPolling = false;
+            $this->loginType = 'qr';
+            
+            $this->record->update(['status' => 'offline']);
+            $this->record->refresh();
+            
             Notification::make()
-                ->title('停止失败')
-                ->body($e->getMessage())
-                ->danger()
+                ->title('连接已清理')
+                ->body('本地状态已重置为离线（Node.js 服务可能不可用）')
+                ->warning()
                 ->send();
         }
     }
@@ -350,23 +381,60 @@ class ViewBot extends ViewRecord
     public function checkStatus()
     {
         try {
-            // 检查 QR 码（仅二维码登录）
-            if ($this->loginType === 'qr') {
-                $qrCode = Cache::get("bot_{$this->record->id}_qrcode");
+            $nodeUrl = config('app.node_server.url');
+            
+            // 从 Node.js 获取最新状态
+            try {
+                $response = Http::timeout(5)->get($nodeUrl . '/api/bot/' . $this->record->id);
                 
-                if (!empty($qrCode)) {
-                    $this->qrCode = $qrCode;
+                if ($response->successful()) {
+                    $data = $response->json();
+                    
+                    // 更新 QR 码（二维码登录）
+                    if (!empty($data['qr'])) {
+                        $this->qrCode = $data['qr'];
+                    }
+                    
+                    // 更新配对码（验证码登录）
+                    if (!empty($data['pairingCode'])) {
+                        $this->pairingCode = $data['pairingCode'];
+                        $this->phoneNumber = $data['phoneNumber'];
+                    }
+                }
+            } catch (\Exception $e) {
+                // Node.js 不可用时，从缓存获取 QR 码和配对码
+                if ($this->loginType === 'qr') {
+                    $qrCode = Cache::get("bot_{$this->record->id}_qrcode");
+                    if (!empty($qrCode)) {
+                        $this->qrCode = $qrCode;
+                    }
+                } elseif ($this->loginType === 'sms') {
+                    $pairingCode = Cache::get("bot_{$this->record->id}_pairing_code");
+                    $phoneNumber = Cache::get("bot_{$this->record->id}_phone_number");
+                    if (!empty($pairingCode)) {
+                        $this->pairingCode = $pairingCode;
+                        $this->phoneNumber = $phoneNumber;
+                    }
                 }
             }
             
             // 刷新机器人状态
             $this->record->refresh();
             
-            // 如果状态变为 online，停止轮询
+            // 如果状态变为 online，停止轮询并清理缓存
             if ($this->record->status === 'online') {
                 $this->isPolling = false;
                 $this->qrCode = null;
                 $this->pairingCode = null;
+                
+                // 清理缓存
+                Cache::forget("bot_{$this->record->id}_qrcode");
+                Cache::forget("bot_{$this->record->id}_pairing_code");
+                Cache::forget("bot_{$this->record->id}_phone_number");
+                
+                // 发送停止轮询事件
+                $this->dispatch('stop-qr-polling');
+                $this->dispatch('bot-connected');
                 
                 Notification::make()
                     ->title('连接成功')

@@ -4,6 +4,7 @@ const cors = require('cors');
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
+const NodeCache = require('node-cache');
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -24,6 +25,9 @@ const config = {
 
 const app = express();
 const sessions = new Map();
+
+// 群组缓存 - 5分钟过期
+const groupCache = new NodeCache({ stdTTL: 5 * 60, useClones: false });
 
 app.use(cors());
 app.use(express.json());
@@ -81,6 +85,10 @@ const laravel = {
         return this.request(`/api/bots/${sessionId}/qr-code`, { qrCode });
     },
     
+    sendPairingCode(sessionId, pairingCode, phoneNumber) {
+        return this.request(`/api/bots/${sessionId}/pairing-code`, { pairingCode, phoneNumber });
+    },
+    
     async syncGroup(sessionId, group) {
         return this.request(`/api/bots/${sessionId}/sync-group`, {
             groupId: group.id,
@@ -91,13 +99,12 @@ const laravel = {
     },
     
     async syncMember(sessionId, groupId, member) {
-        if (!member.phone) {
-            console.log(`⏭️  跳过 LID 用户: ${member.whatsappUserId}`);
-            return true;
-        }
-        return this.request(`/api/bots/${sessionId}/sync-group-user-phone`, {
+        // 发送完整的用户信息，包括 LID 用户
+        return this.request(`/api/bots/${sessionId}/sync-group-user`, {
             groupId,
-            phoneNumber: member.phone,
+            phoneNumber: member.phone, // 可能是 null（LID 用户）
+            whatsappUserId: member.whatsappUserId, // 总是有值
+            jid: member.jid,
             isAdmin: member.isAdmin,
             joinedAt: new Date().toISOString()
         });
@@ -106,13 +113,15 @@ const laravel = {
 
 // ==================== WhatsApp 连接管理 ====================
 class WhatsAppSession {
-    constructor(sessionId, loginType = 'qr') {
+    constructor(sessionId, loginType = 'qr', phoneNumber = null) {
         this.sessionId = sessionId;
         this.loginType = loginType; // 'qr' 或 'sms'
         this.sock = null;
         this.status = 'connecting';
         this.lastQR = null;
-        this.phoneNumber = null;
+        this.phoneNumber = phoneNumber;
+        this.pairingCode = null;
+        this.pairingCodeRequested = false;
     }
 
     async create() {
@@ -126,11 +135,22 @@ class WhatsAppSession {
         const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
         const { version } = await fetchLatestBaileysVersion();
 
+        // 创建一个简单的静默 logger 对象
+        const silentLogger = {
+            level: 'silent',
+            fatal: () => {},
+            error: () => {},
+            warn: () => {},
+            info: () => {},
+            debug: () => {},
+            trace: () => {},
+            child: () => silentLogger
+        };
+
         const socketConfig = {
             version,
             auth: state,
-            logger: console.log,
-            printQRInTerminal: this.loginType === 'qr',
+            logger: silentLogger, // 禁用 Baileys 内部日志
             browser: Browsers.ubuntu('WhatsApp Bot'),
             connectTimeoutMs: 60000,
             keepAliveIntervalMs: 30000,
@@ -138,7 +158,8 @@ class WhatsAppSession {
             syncFullHistory: false,
             fireInitQueries: true,
             emitOwnEvents: false,
-            generateHighQualityLinkPreview: false
+            generateHighQualityLinkPreview: false,
+            cachedGroupMetadata: async (jid) => groupCache.get(jid)
         };
 
         this.sock = makeWASocket(socketConfig);
@@ -149,6 +170,25 @@ class WhatsAppSession {
         // 监听连接状态
         this.sock.ev.on('connection.update', (update) => this.handleConnectionUpdate(update));
         
+        // 监听群组更新事件
+        this.sock.ev.on('groups.update', async ([event]) => {
+            try {
+                const metadata = await this.sock.groupMetadata(event.id);
+                groupCache.set(event.id, metadata);
+            } catch (error) {
+                console.error(`❌ 更新群组缓存失败: ${error.message}`);
+            }
+        });
+        
+        this.sock.ev.on('group-participants.update', async (event) => {
+            try {
+                const metadata = await this.sock.groupMetadata(event.id);
+                groupCache.set(event.id, metadata);
+            } catch (error) {
+                console.error(`❌ 更新群组参与者缓存失败: ${error.message}`);
+            }
+        });
+        
         sessions.set(this.sessionId, this);
         return this;
     }
@@ -157,6 +197,31 @@ class WhatsAppSession {
         const { connection, qr, lastDisconnect } = update;
 
         console.log(`📊 机器人 #${this.sessionId} 连接: ${connection || 'unknown'}`);
+
+        // 处理验证码登录：在连接建立后请求配对码
+        if (connection === 'connecting' && this.loginType === 'sms' && this.phoneNumber && !this.pairingCodeRequested) {
+            try {
+                // 等待一下确保 socket 完全准备好
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                if (!this.sock.authState.creds.registered) {
+                    console.log(`📱 请求配对码: ${this.phoneNumber}`);
+                    this.pairingCode = await this.sock.requestPairingCode(this.phoneNumber);
+                    this.pairingCodeRequested = true;
+                    console.log(`🔑 配对码: ${this.pairingCode}`);
+                    
+                    // 发送配对码到 Laravel
+                    await laravel.sendPairingCode(this.sessionId, this.pairingCode, this.phoneNumber);
+                    await laravel.updateStatus(this.sessionId, 'connecting', this.phoneNumber, '等待输入配对码');
+                } else {
+                    console.log(`✅ 机器人 #${this.sessionId} 已注册，无需配对码`);
+                }
+            } catch (error) {
+                console.error(`❌ 获取配对码失败: ${error.message}`);
+                // 配对码失败时，切换到 QR 码登录
+                this.loginType = 'qr';
+            }
+        }
 
         if (qr && this.loginType === 'qr') {
             console.log(`📱 机器人 #${this.sessionId} 生成 QR 码`);
@@ -172,6 +237,7 @@ class WhatsAppSession {
         if (connection === 'open') {
             this.status = 'open';
             this.lastQR = null;
+            this.pairingCode = null;
             this.phoneNumber = this.sock.user.id.split(':')[0];
             const pushname = this.sock.user.name || '未设置';
             
@@ -207,7 +273,12 @@ class WhatsAppSession {
     }
 
     async requestPairingCode(phoneNumber) {
-        if (!this.sock || !this.sock.authState.creds.registered) {
+        if (!this.sock) {
+            throw new Error('Socket 未初始化');
+        }
+        
+        // 检查是否已注册
+        if (!this.sock.authState.creds.registered) {
             console.log(`📱 请求配对码: ${phoneNumber}`);
             try {
                 const code = await this.sock.requestPairingCode(phoneNumber);
@@ -218,20 +289,35 @@ class WhatsAppSession {
                 console.error(`❌ 获取配对码失败: ${error.message}`);
                 throw error;
             }
+        } else {
+            console.log(`✅ 机器人 #${this.sessionId} 已注册，无需配对码`);
+            return null;
         }
-        return null;
     }
 
-    async stop() {
+    async stop(deleteFiles = false) {
         if (this.sock) {
             try {
-                await this.sock.logout();
+                if (deleteFiles) {
+                    // 完全登出，删除会话文件
+                    await this.sock.logout();
+                } else {
+                    // 只断开连接，保持会话文件
+                    await this.sock.logout();
+                }
             } catch (error) {
                 console.error(`❌ 登出失败: ${error.message}`);
             }
         }
+        
+        if (deleteFiles) {
+            await utils.deleteSessionFiles(this.sessionId);
+            console.log(`✅ 会话 #${this.sessionId} 已完全停止（会话文件已删除）`);
+        } else {
+            console.log(`✅ 会话 #${this.sessionId} 已断开连接（会话文件保留）`);
+        }
+        
         sessions.delete(this.sessionId);
-        console.log(`✅ 会话 #${this.sessionId} 已停止`);
     }
 }
 
@@ -292,16 +378,13 @@ app.post('/api/bot/:botId/start-sms', async (req, res) => {
             });
         }
         
-        const session = new WhatsAppSession(botId, 'sms');
+        const session = new WhatsAppSession(botId, 'sms', phoneNumber);
         await session.create();
-        
-        // 请求配对码
-        const code = await session.requestPairingCode(phoneNumber);
         
         res.json({ 
             success: true, 
-            message: '配对码已生成',
-            data: { botId, status: 'connecting', pairingCode: code }
+            message: '正在生成配对码...',
+            data: { botId, status: 'connecting', pairingCode: null }
         });
     } catch (error) {
         console.error(`❌ 验证码登录失败: ${error.message}`);
@@ -313,19 +396,17 @@ app.post('/api/bot/:botId/start-sms', async (req, res) => {
 app.post('/api/bot/:botId/stop', async (req, res) => {
     try {
         const { botId } = req.params;
-        const { deleteFiles } = req.body;
-        console.log(`🛑 停止请求 - 机器人 #${botId}`);
+        const { deleteFiles = false } = req.body; // 默认不删除会话文件
+        console.log(`🛑 停止请求 - 机器人 #${botId} (删除文件: ${deleteFiles})`);
         
         const session = sessions.get(botId);
         if (session) {
-            await session.stop();
-            if (deleteFiles) {
-                await utils.deleteSessionFiles(botId);
-            }
+            await session.stop(deleteFiles);
         }
         
-        await laravel.updateStatus(botId, 'offline', null, '用户手动停止');
-        res.json({ success: true, message: '机器人已停止' });
+        const message = deleteFiles ? '机器人已停止，会话已清理' : '机器人已停止，会话已保留';
+        await laravel.updateStatus(botId, 'offline', null, message);
+        res.json({ success: true, message });
     } catch (error) {
         console.error(`❌ 停止失败: ${error.message}`);
         res.status(500).json({ success: false, message: error.message });
@@ -348,6 +429,7 @@ app.get('/api/bot/:botId', (req, res) => {
             status: session.status, 
             hasQR: !!session.lastQR,
             qr: session.lastQR,
+            pairingCode: session.pairingCode,
             phoneNumber: session.phoneNumber
         });
     } catch (error) {
@@ -471,12 +553,21 @@ app.listen(config.port, async () => {
             const stat = await fs.stat(sessionPath);
             
             if (stat.isDirectory()) {
-                console.log(`🔄 发现会话: ${sessionDir}`);
+                console.log(`🔄 发现会话: ${sessionDir}，尝试恢复...`);
                 try {
+                    // 尝试恢复会话，使用现有的认证状态
                     const session = new WhatsAppSession(sessionDir, 'qr');
                     await session.create();
+                    console.log(`✅ 会话 ${sessionDir} 恢复成功`);
                 } catch (error) {
                     console.error(`❌ 恢复会话 ${sessionDir} 失败: ${error.message}`);
+                    // 如果恢复失败，可能是会话已过期，清理文件
+                    try {
+                        await utils.deleteSessionFiles(sessionDir);
+                        console.log(`🗑️ 已清理过期的会话文件: ${sessionDir}`);
+                    } catch (cleanupError) {
+                        console.error(`❌ 清理会话文件失败: ${cleanupError.message}`);
+                    }
                 }
             }
         }
@@ -488,8 +579,17 @@ app.listen(config.port, async () => {
 process.on('SIGINT', async () => {
     console.log('\n🛑 正在关闭所有会话...');
     for (const [sessionId, session] of sessions.entries()) {
-        await session.stop();
+        if (session.sock) {
+            try {
+                // 只断开连接，不删除会话文件，保持会话状态
+                await session.sock.logout();
+                console.log(`📱 会话 #${sessionId} 已断开连接（会话文件保留）`);
+            } catch (error) {
+                console.error(`❌ 断开会话 #${sessionId} 失败: ${error.message}`);
+            }
+        }
+        sessions.delete(sessionId);
     }
-    console.log('✅ 已退出');
+    console.log('✅ 服务已停止，会话文件已保留');
     process.exit(0);
 });

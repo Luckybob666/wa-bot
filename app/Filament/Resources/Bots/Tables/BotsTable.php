@@ -64,20 +64,24 @@ class BotsTable
                     ->options(Bot::getStatusOptions()),
             ])
             ->recordActions([
-                ViewAction::make(),
+                // 查看/管理按钮 - 整合了连接功能
+                ViewAction::make()
+                    ->label(fn (Bot $record): string => match ($record->status) {
+                        'offline' => '连接',
+                        'online' => '管理',
+                        default => '查看'
+                    })
+                    ->icon(fn (Bot $record): string => match ($record->status) {
+                        'offline' => 'heroicon-o-qr-code',
+                        'online' => 'heroicon-o-cog-6-tooth',
+                        default => 'heroicon-o-eye'
+                    })
+                    ->color(fn (Bot $record): string => match ($record->status) {
+                        'offline' => 'success',
+                        'online' => 'info',
+                        default => 'gray'
+                    }),
                 EditAction::make(),
-                Action::make('connect')
-                    ->label('连接')
-                    ->icon('heroicon-o-qr-code')
-                    ->color('success')
-                    ->url(fn (Bot $record): string => route('filament.admin.resources.bots.connect', $record))
-                    ->visible(fn (Bot $record): bool => $record->status === 'offline'),
-                Action::make('disconnect')
-                    ->label('断开')
-                    ->icon('heroicon-o-x-mark')
-                    ->color('danger')
-                    ->url(fn (Bot $record): string => route('filament.admin.resources.bots.connect', $record))
-                    ->visible(fn (Bot $record): bool => $record->status === 'online'),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

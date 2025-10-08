@@ -41,18 +41,15 @@ class WhatsappUsersTable
                 TextColumn::make('group_id')
                     ->label('群组ID')
                     ->formatStateUsing(function ($record) {
-                        try {
-                            $groups = $record->groups()->get();
-                            if ($groups->isEmpty()) {
-                                return '未加入任何群组';
-                            }
-                            
-                            return $groups->map(function ($group) {
-                                return $group->group_id;
-                            })->join(', ');
-                        } catch (\Exception $e) {
-                            return '错误: ' . $e->getMessage();
+                        // 使用已加载的关联关系
+                        $groups = $record->groups ?? collect();
+                        if ($groups->isEmpty()) {
+                            return '未加入任何群组';
                         }
+                        
+                        return $groups->map(function ($group) {
+                            return $group->group_id;
+                        })->join(', ');
                     })
                     ->copyable()
                     ->copyMessage('群组ID已复制')
@@ -61,43 +58,36 @@ class WhatsappUsersTable
                 TextColumn::make('group_name')
                     ->label('群组名称')
                     ->formatStateUsing(function ($record) {
-                        try {
-                            $groups = $record->groups()->with('bot')->get();
-                            if ($groups->isEmpty()) {
-                                return '未加入任何群组';
-                            }
-                            
-                            return $groups->map(function ($group) {
-                                $botName = $group->bot->name ?? '未知机器人';
-                                return "{$group->name} ({$botName})";
-                            })->join(', ');
-                        } catch (\Exception $e) {
-                            return '错误: ' . $e->getMessage();
+                        // 使用已加载的关联关系
+                        $groups = $record->groups ?? collect();
+                        if ($groups->isEmpty()) {
+                            return '未加入任何群组';
                         }
+                        
+                        return $groups->map(function ($group) {
+                            $botName = $group->bot->name ?? '未知机器人';
+                            return "{$group->name} ({$botName})";
+                        })->join(', ');
                     })
                     ->wrap()
                     ->limit(50)
                     ->tooltip(function ($record) {
-                        try {
-                            $groups = $record->groups()->with('bot')->get();
-                            if ($groups->isEmpty()) {
-                                return null;
-                            }
-                            
-                            return $groups->map(function ($group) {
-                                $botName = $group->bot->name ?? '未知机器人';
-                                return "群组: {$group->name}\n机器人: {$botName}\n群组ID: {$group->group_id}";
-                            })->join("\n\n");
-                        } catch (\Exception $e) {
-                            return '错误: ' . $e->getMessage();
+                        $groups = $record->groups ?? collect();
+                        if ($groups->isEmpty()) {
+                            return null;
                         }
+                        
+                        return $groups->map(function ($group) {
+                            $botName = $group->bot->name ?? '未知机器人';
+                            return "群组: {$group->name}\n机器人: {$botName}\n群组ID: {$group->group_id}";
+                        })->join("\n\n");
                     }),
                 
                 TextColumn::make('status')
                     ->label('状态')
                     ->badge()
-                    ->color(fn ($record) => $record->groups()->count() > 0 ? 'success' : 'warning')
-                    ->formatStateUsing(fn ($record) => $record->groups()->count() > 0 ? '已进群' : '未进群'),
+                    ->color(fn ($record) => ($record->groups ?? collect())->count() > 0 ? 'success' : 'warning')
+                    ->formatStateUsing(fn ($record) => ($record->groups ?? collect())->count() > 0 ? '已进群' : '未进群'),
                 TextColumn::make('created_at')
                     ->label('创建时间')
                     ->dateTime('Y-m-d H:i:s')

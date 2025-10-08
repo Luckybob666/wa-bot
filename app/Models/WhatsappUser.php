@@ -16,6 +16,8 @@ class WhatsappUser extends Model
      */
     protected $fillable = [
         'phone_number',
+        'whatsapp_user_id',
+        'jid',
         'nickname',
         'profile_picture',
     ];

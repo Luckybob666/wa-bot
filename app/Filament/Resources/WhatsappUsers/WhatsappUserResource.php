@@ -6,7 +6,6 @@ use App\Filament\Resources\WhatsappUsers\Pages\CreateWhatsappUser;
 use App\Filament\Resources\WhatsappUsers\Pages\EditWhatsappUser;
 use App\Filament\Resources\WhatsappUsers\Pages\ListWhatsappUsers;
 use App\Filament\Resources\WhatsappUsers\Pages\ViewWhatsappUser;
-use App\Filament\Resources\WhatsappUsers\Pages\UploadPhoneNumbers;
 use App\Filament\Resources\WhatsappUsers\Schemas\WhatsappUserForm;
 use App\Filament\Resources\WhatsappUsers\Schemas\WhatsappUserInfolist;
 use App\Filament\Resources\WhatsappUsers\Tables\WhatsappUsersTable;
@@ -56,7 +55,7 @@ class WhatsappUserResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => UploadPhoneNumbers::route('/'),
+            'index' => ListWhatsappUsers::route('/'),
             'create' => CreateWhatsappUser::route('/create'),
             'view' => ViewWhatsappUser::route('/{record}'),
             'edit' => EditWhatsappUser::route('/{record}/edit'),
