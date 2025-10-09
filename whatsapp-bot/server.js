@@ -64,14 +64,28 @@ const utils = {
 const laravel = {
     async request(endpoint, data) {
         try {
-            await axios.post(`${config.laravelUrl}${endpoint}`, data, {
+            const response = await axios.post(`${config.laravelUrl}${endpoint}`, data, {
                 timeout: 15000,
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }
             });
+            
+            // 检查响应状态
+            if (response.data && response.data.success === false) {
+                console.error(`❌ Laravel API 业务逻辑错误 [${endpoint}]: ${response.data.message}`);
+                return false;
+            }
+            
             return true;
         } catch (error) {
-            if (error.response?.status !== 404) {
-                console.error(`❌ Laravel API 失败 [${endpoint}]: ${error.message}`);
+            if (error.response) {
+                // 服务器响应了错误状态码
+                console.error(`❌ Laravel API 失败 [${endpoint}]: ${error.response.status} - ${error.response.data?.message || error.message}`);
+            } else if (error.request) {
+                // 请求已发出但没有收到响应
+                console.error(`❌ Laravel API 超时 [${endpoint}]: 请求超时或网络错误`);
+            } else {
+                // 其他错误
+                console.error(`❌ Laravel API 错误 [${endpoint}]: ${error.message}`);
             }
             return false;
         }
