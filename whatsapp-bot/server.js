@@ -486,7 +486,8 @@ app.post('/api/bot/:botId/sync-group-users', async (req, res) => {
         const gid = utils.ensureGroupId(groupId);
         const meta = await session.sock.groupMetadata(gid);
         const members = (meta.participants || []).map(p => {
-            const jid = jidNormalizedUser(p.id);
+            // 直接使用participants中的jid字段，这是真实的手机号
+            const jid = p.jid; // 如：60147954892@s.whatsapp.net
             const phone = utils.jidToPhone(jid);
             return {
                 jid,
