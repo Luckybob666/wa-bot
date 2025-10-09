@@ -54,12 +54,18 @@
         
         // 当机器人状态变为 online 时停止轮询
         $wire.on('bot-connected', () => {
-            console.log('机器人已连接，停止轮询...');
+            console.log('机器人已连接，停止轮询并刷新页面...');
             if (pollingInterval) {
                 clearInterval(pollingInterval);
                 pollingInterval = null;
             }
             isPolling = false;
+            
+            // 延迟刷新页面，确保后端状态已更新
+            setTimeout(() => {
+                console.log('刷新页面组件...');
+                window.location.reload();
+            }, 1000);
         });
         
         // 处理延迟检查事件

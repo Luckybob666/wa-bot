@@ -463,11 +463,12 @@ class ViewBot extends ViewRecord
             
             // 如果状态变为 online，停止轮询并清理缓存
             if ($newStatus === 'online') {
-                \Log::info("机器人 #{$this->record->id} 已上线，停止轮询");
+                \Log::info("机器人 #{$this->record->id} 已上线，停止轮询并刷新页面");
                 
                 $this->isPolling = false;
                 $this->qrCode = null;
                 $this->pairingCode = null;
+                $this->loginType = null;
                 
                 // 清理缓存
                 Cache::forget("bot_{$this->record->id}_qrcode");
@@ -478,10 +479,14 @@ class ViewBot extends ViewRecord
                 $this->dispatch('stop-qr-polling');
                 $this->dispatch('bot-connected');
                 
+                // 强制刷新整个页面组件
+                $this->dispatch('$refresh');
+                
                 Notification::make()
                     ->title('连接成功')
-                    ->body('WhatsApp 已成功连接！')
+                    ->body("WhatsApp 已成功连接！手机号：{$this->record->phone_number}")
                     ->success()
+                    ->duration(5000)
                     ->send();
             }
             
