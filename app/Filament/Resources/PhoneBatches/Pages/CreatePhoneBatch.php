@@ -28,14 +28,9 @@ class CreatePhoneBatch extends CreateRecord
 
     protected function handleRecordCreation(array $data): Model
     {
+        // 直接创建记录，数据已经在 mutateFormDataBeforeCreate 中处理过了
         $record = static::getModel()::create($data);
         
-        // 如果传入了手机号，处理并保存
-        if (isset($data['phone_numbers']) && is_array($data['phone_numbers'])) {
-            $record->setPhoneNumbers($data['phone_numbers']);
-            $record->save();
-        }
-
         return $record;
     }
 }

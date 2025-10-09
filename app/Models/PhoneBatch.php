@@ -116,11 +116,11 @@ class PhoneBatch extends Model
      */
     public function setPhoneNumbers(array $phoneNumbers): void
     {
-        // 清理和验证手机号
+        // 清理手机号，移除所有非数字字符
         $cleanNumbers = [];
         foreach ($phoneNumbers as $number) {
             $cleanNumber = $this->cleanPhoneNumber($number);
-            if ($cleanNumber && $this->isValidPhoneNumber($cleanNumber)) {
+            if ($cleanNumber && strlen($cleanNumber) >= 3) { // 至少3位数字
                 $cleanNumbers[] = $cleanNumber;
             }
         }
@@ -134,7 +134,7 @@ class PhoneBatch extends Model
      */
     private function cleanPhoneNumber(string $phoneNumber): ?string
     {
-        // 移除所有非数字字符
+        // 移除所有非数字字符（包括+号、空格、横线等）
         $cleaned = preg_replace('/[^0-9]/', '', $phoneNumber);
         
         // 如果是空字符串，返回 null
@@ -142,33 +142,10 @@ class PhoneBatch extends Model
             return null;
         }
         
-        // 如果是中国手机号（11位，以1开头）
-        if (preg_match('/^1[3-9]\d{9}$/', $cleaned)) {
-            return $cleaned;
-        }
-        
-        // 如果是国际号码（带国家代码）
-        if (preg_match('/^86\d{11}$/', $cleaned)) {
-            return substr($cleaned, 2); // 移除 86 前缀
-        }
-        
-        // 其他格式暂时保留
+        // 直接返回清理后的纯数字
         return $cleaned;
     }
 
-    /**
-     * 验证手机号格式
-     */
-    private function isValidPhoneNumber(string $phoneNumber): bool
-    {
-        // 中国手机号验证
-        if (preg_match('/^1[3-9]\d{9}$/', $phoneNumber)) {
-            return true;
-        }
-        
-        // 可以添加其他国家的手机号验证规则
-        return false;
-    }
 
     /**
      * 从文本创建批次
