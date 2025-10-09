@@ -13,14 +13,12 @@ class PhoneBatch extends Model
     protected $fillable = [
         'name',
         'description',
-        'phone_numbers',
         'total_count',
         'processed_count',
         'status',
     ];
 
     protected $casts = [
-        'phone_numbers' => 'array',
         'total_count' => 'integer',
         'processed_count' => 'integer',
     ];
@@ -88,6 +86,14 @@ class PhoneBatch extends Model
     }
 
     /**
+     * 关联手机号明细
+     */
+    public function phoneNumbers(): HasMany
+    {
+        return $this->hasMany(PhoneBatchNumber::class);
+    }
+
+    /**
      * 关联比对结果
      */
     public function comparisons(): HasMany
@@ -108,7 +114,7 @@ class PhoneBatch extends Model
      */
     public function getPhoneNumbers(): array
     {
-        return $this->phone_numbers ?? [];
+        return $this->phoneNumbers()->pluck('phone_number')->toArray();
     }
 
     /**
@@ -116,6 +122,9 @@ class PhoneBatch extends Model
      */
     public function setPhoneNumbers(array $phoneNumbers): void
     {
+        // 先删除现有的手机号
+        $this->phoneNumbers()->delete();
+        
         // 清理手机号，移除所有非数字字符
         $cleanNumbers = [];
         foreach ($phoneNumbers as $number) {
@@ -125,8 +134,28 @@ class PhoneBatch extends Model
             }
         }
         
-        $this->phone_numbers = array_unique($cleanNumbers);
-        $this->total_count = count($this->phone_numbers);
+        // 去重
+        $cleanNumbers = array_unique($cleanNumbers);
+        
+        // 批量插入手机号
+        $batchNumbers = [];
+        foreach ($cleanNumbers as $phoneNumber) {
+            $batchNumbers[] = [
+                'phone_batch_id' => $this->id,
+                'phone_number' => $phoneNumber,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+        }
+        
+        if (!empty($batchNumbers)) {
+            \DB::table('phone_batch_numbers')->insert($batchNumbers);
+        }
+        
+        $this->total_count = count($cleanNumbers);
+        $this->processed_count = count($cleanNumbers); // 创建时已处理完成
+        $this->status = self::STATUS_COMPLETED; // 创建完成即标记为已完成
+        $this->save();
     }
 
     /**
@@ -157,10 +186,35 @@ class PhoneBatch extends Model
         $batch = new self();
         $batch->name = $name;
         $batch->description = $description;
-        $batch->setPhoneNumbers($phoneNumbers);
         $batch->status = self::STATUS_PENDING;
+        $batch->save(); // 先保存获取ID
+        
+        $batch->setPhoneNumbers($phoneNumbers);
         
         return $batch;
+    }
+
+    /**
+     * 检查手机号是否在批次中（高效查询）
+     */
+    public function hasPhoneNumber(string $phoneNumber): bool
+    {
+        $cleanNumber = $this->cleanPhoneNumber($phoneNumber);
+        return $this->phoneNumbers()->where('phone_number', $cleanNumber)->exists();
+    }
+
+    /**
+     * 获取与WhatsApp用户匹配的手机号
+     */
+    public function getMatchedPhoneNumbers(array $whatsappPhoneNumbers): array
+    {
+        $cleanWhatsappNumbers = array_map([$this, 'cleanPhoneNumber'], $whatsappPhoneNumbers);
+        $cleanWhatsappNumbers = array_filter($cleanWhatsappNumbers);
+        
+        return $this->phoneNumbers()
+            ->whereIn('phone_number', $cleanWhatsappNumbers)
+            ->pluck('phone_number')
+            ->toArray();
     }
 
     /**

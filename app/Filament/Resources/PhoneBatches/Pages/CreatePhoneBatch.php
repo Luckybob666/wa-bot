@@ -17,19 +17,32 @@ class CreatePhoneBatch extends CreateRecord
             $phoneNumbers = array_filter(array_map('trim', explode("\n", $data['phone_numbers'])));
             $data['phone_numbers'] = $phoneNumbers;
             $data['total_count'] = count($phoneNumbers);
+            $data['processed_count'] = count($phoneNumbers); // 创建时已处理完成
+            $data['status'] = 'completed'; // 创建完成即标记为已完成
+        } else {
+            $data['total_count'] = 0;
+            $data['processed_count'] = 0;
+            $data['status'] = 'pending';
         }
-
-        // 设置默认状态
-        $data['status'] = 'pending';
-        $data['processed_count'] = 0;
 
         return $data;
     }
 
     protected function handleRecordCreation(array $data): Model
     {
-        // 直接创建记录，数据已经在 mutateFormDataBeforeCreate 中处理过了
-        $record = static::getModel()::create($data);
+        // 先创建批次记录
+        $record = static::getModel()::create([
+            'name' => $data['name'],
+            'description' => $data['description'],
+            'total_count' => $data['total_count'],
+            'processed_count' => $data['processed_count'],
+            'status' => $data['status'],
+        ]);
+        
+        // 如果有手机号，处理并保存到明细表
+        if (isset($data['phone_numbers']) && is_array($data['phone_numbers'])) {
+            $record->setPhoneNumbers($data['phone_numbers']);
+        }
         
         return $record;
     }
