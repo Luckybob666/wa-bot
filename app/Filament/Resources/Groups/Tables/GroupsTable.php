@@ -100,6 +100,7 @@ class GroupsTable
                             ->options(function () {
                                 return PhoneBatch::where('status', 'completed')
                                     ->orderBy('created_at', 'desc')
+                                    ->get()
                                     ->pluck('name', 'id');
                             })
                             ->searchable()

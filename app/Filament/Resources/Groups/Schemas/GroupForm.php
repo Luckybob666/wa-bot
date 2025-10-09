@@ -53,6 +53,7 @@ class GroupForm
                     ->options(function () {
                         return \App\Models\PhoneBatch::where('status', 'completed')
                             ->orderBy('created_at', 'desc')
+                            ->get()
                             ->pluck('name', 'id');
                     })
                     ->searchable()
