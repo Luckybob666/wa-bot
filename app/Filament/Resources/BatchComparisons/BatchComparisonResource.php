@@ -24,6 +24,14 @@ class BatchComparisonResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'id';
 
+    protected static ?string $navigationLabel = '号码比对';
+
+    protected static ?string $modelLabel = '号码比对';
+
+    protected static ?string $pluralModelLabel = '号码比对';
+
+    protected static ?int $navigationSort = 4;
+
     public static function form(Schema $schema): Schema
     {
         return BatchComparisonForm::configure($schema);
