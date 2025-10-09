@@ -23,7 +23,7 @@ class ViewBot extends ViewRecord
 
     public ?string $qrCode = null;
     public bool $isPolling = false;
-    public string $loginType = 'qr'; // 'qr' 或 'sms'
+    public ?string $loginType = 'qr'; // 'qr' 或 'sms' 或 null
     public string $phoneNumber = '';
     public ?string $pairingCode = null;
     public bool $showSmsForm = false;
