@@ -238,24 +238,38 @@ class WhatsAppSession {
         }
 
         if (qr && this.loginType === 'qr') {
-            // 避免重复发送相同的QR码
-            if (!this.lastQR || this.lastQR !== qr) {
+            // 避免重复发送相同的QR码，增加时间间隔控制
+            // WhatsApp QR码通常20-60秒才更新一次，设置18秒间隔
+            const now = Date.now();
+            const QR_UPDATE_INTERVAL = 18000; // 18秒
+            
+            if (!this.lastQR || (now - (this.lastQRSendTime || 0)) > QR_UPDATE_INTERVAL) {
                 console.log(`📱 机器人 #${this.sessionId} 生成 QR 码`);
                 try {
-                    this.lastQR = await qrcode.toDataURL(qr);
-                    console.log(`📤 发送 QR 码到 Laravel...`);
-                    const qrSent = await laravel.sendQrCode(this.sessionId, this.lastQR);
-                    if (qrSent) {
-                        console.log(`✅ 机器人 #${this.sessionId} QR 码已发送到 Laravel`);
+                    const qrImage = await qrcode.toDataURL(qr);
+                    
+                    // 只有QR码真的变化了才发送
+                    if (this.lastQR !== qrImage) {
+                        this.lastQR = qrImage;
+                        this.lastQRSendTime = now;
+                        
+                        console.log(`📤 发送 QR 码到 Laravel...`);
+                        const qrSent = await laravel.sendQrCode(this.sessionId, this.lastQR);
+                        if (qrSent) {
+                            console.log(`✅ 机器人 #${this.sessionId} QR 码已发送到 Laravel`);
+                        } else {
+                            console.error(`❌ 机器人 #${this.sessionId} QR 码发送到 Laravel 失败`);
+                        }
+                        await laravel.updateStatus(this.sessionId, 'connecting', null, '等待扫码登录');
                     } else {
-                        console.error(`❌ 机器人 #${this.sessionId} QR 码发送到 Laravel 失败`);
+                        console.log(`📱 机器人 #${this.sessionId} QR 码内容未变化，跳过发送`);
                     }
-                    await laravel.updateStatus(this.sessionId, 'connecting', null, '等待扫码登录');
                 } catch (error) {
                     console.error(`❌ QR 码处理失败: ${error.message}`);
                 }
             } else {
-                console.log(`📱 机器人 #${this.sessionId} QR 码未变化，跳过发送`);
+                const remainingTime = Math.ceil((QR_UPDATE_INTERVAL - (now - this.lastQRSendTime)) / 1000);
+                console.log(`📱 机器人 #${this.sessionId} QR 码发送间隔未到，还需等待 ${remainingTime} 秒`);
             }
         }
 

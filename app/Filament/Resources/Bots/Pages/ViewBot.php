@@ -197,11 +197,7 @@ class ViewBot extends ViewRecord
                     // 延迟检查QR码，确保Node.js有时间生成
                     $this->dispatch('check-qr-delayed');
                     
-                    // 备用方案：直接延迟检查
-                    dispatch(function() {
-                        sleep(3); // 等待3秒
-                        $this->checkStatus();
-                    })->delay(3);
+                    // 移除有问题的队列调度，改用其他方式
                     
                     Notification::make()
                         ->title('机器人启动中')
@@ -382,6 +378,9 @@ class ViewBot extends ViewRecord
         \Log::info("开始轮询，机器人 ID: {$this->record->id}");
         $this->isPolling = true;
         $this->dispatch('start-qr-polling');
+        
+        // 立即检查一次，确保轮询开始
+        $this->dispatch('poll-qr-code');
     }
 
     #[On('poll-qr-code')]
