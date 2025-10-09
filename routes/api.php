@@ -31,12 +31,13 @@ Route::post('bots/{id}/qr-code', function (Request $request, $id) {
         // 验证缓存是否成功
         $cached = Cache::get("bot_{$id}_qrcode");
         \Log::info("QR 码已存储到缓存，验证: " . ($cached ? '成功' : '失败'));
+        \Log::info("QR 码长度: " . strlen($qrCode) . " 字符");
         
         $bot->update([
             'status' => 'connecting',
         ]);
         
-        \Log::info("机器人 #{$id} QR 码处理完成");
+        \Log::info("机器人 #{$id} QR 码处理完成，状态已更新为 connecting");
         
         return response()->json([
             'success' => true,
@@ -163,33 +164,47 @@ Route::get('/bots/{id}/pairing-code', function ($id) {
 
 // 机器人状态更新接口
 Route::post('/bots/{id}/status', function (Request $request, $id) {
-    $bot = Bot::findOrFail($id);
-    
-    $updateData = [
-        'status' => $request->input('status'),
-        'last_seen' => now(),
-    ];
+    try {
+        \Log::info("收到状态更新请求，机器人 ID: {$id}");
+        \Log::info("状态更新数据: " . json_encode($request->all()));
+        
+        $bot = Bot::findOrFail($id);
+        
+        $updateData = [
+            'status' => $request->input('status'),
+            'last_seen' => now(),
+        ];
 
-    // 如果提供了手机号，更新手机号
-    if ($request->has('phone_number') && $request->input('phone_number')) {
-        $updateData['phone_number'] = $request->input('phone_number');
-        \Log::info("机器人 #{$id} 手机号更新为: " . $request->input('phone_number'));
+        // 如果提供了手机号，更新手机号
+        if ($request->has('phone_number') && $request->input('phone_number')) {
+            $updateData['phone_number'] = $request->input('phone_number');
+            \Log::info("机器人 #{$id} 手机号更新为: " . $request->input('phone_number'));
+        }
+        
+        $bot->update($updateData);
+        
+        // 如果状态变为 online，清除 QR 码缓存
+        if ($request->input('status') === 'online') {
+            Cache::forget("bot_{$id}_qrcode");
+            Cache::forget("bot_{$id}_pairing_code");
+            Cache::forget("bot_{$id}_phone_number");
+            \Log::info("机器人 #{$id} 已上线，清理相关缓存");
+        }
+        
+        \Log::info("机器人 #{$id} 状态更新为: " . $request->input('status'));
+        
+        return response()->json([
+            'success' => true,
+            'message' => '状态更新成功',
+            'data' => $bot
+        ]);
+    } catch (\Exception $e) {
+        \Log::error("状态更新失败，机器人 ID: {$id}, 错误: " . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage()
+        ], 500);
     }
-    
-    $bot->update($updateData);
-    
-    // 如果状态变为 online，清除 QR 码缓存
-    if ($request->input('status') === 'online') {
-        Cache::forget("bot_{$id}_qrcode");
-    }
-    
-    \Log::info("机器人 #{$id} 状态更新为: " . $request->input('status'));
-    
-    return response()->json([
-        'success' => true,
-        'message' => '状态更新成功',
-        'data' => $bot
-    ]);
 });
 
 // 更新机器人最后活跃时间

@@ -96,18 +96,6 @@ class GroupsTable
                     ->color('info')
                     ->requiresConfirmation()
                     ->modalHeading('选择要绑定的批次')
-                    ->modalDescription(function () {
-                        $batches = PhoneBatch::where('status', 'completed')->get();
-                        if ($batches->isEmpty()) {
-                            return '没有可用的已完成批次。';
-                        }
-                        
-                        $options = $batches->map(function ($batch) {
-                            return "• {$batch->name} (创建时间: {$batch->created_at->format('Y-m-d H:i')})";
-                        })->join('<br>');
-                        
-                        return "可用的已完成批次：<br>{$options}<br><br>请选择要绑定的批次：";
-                    })
                     ->form([
                         Select::make('phone_batch_id')
                             ->label('选择批次')

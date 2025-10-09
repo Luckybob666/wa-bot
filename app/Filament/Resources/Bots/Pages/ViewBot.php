@@ -393,20 +393,27 @@ class ViewBot extends ViewRecord
                     // 更新 QR 码（二维码登录）
                     if (!empty($data['qr'])) {
                         $this->qrCode = $data['qr'];
+                        \Log::info("从 Node.js 获取到 QR 码，机器人 ID: {$this->record->id}");
                     }
                     
                     // 更新配对码（验证码登录）
                     if (!empty($data['pairingCode'])) {
                         $this->pairingCode = $data['pairingCode'];
                         $this->phoneNumber = $data['phoneNumber'];
+                        \Log::info("从 Node.js 获取到配对码，机器人 ID: {$this->record->id}");
                     }
                 }
             } catch (\Exception $e) {
+                \Log::warning("Node.js 不可用，从缓存获取数据，机器人 ID: {$this->record->id}, 错误: {$e->getMessage()}");
+                
                 // Node.js 不可用时，从缓存获取 QR 码和配对码
                 if ($this->loginType === 'qr') {
                     $qrCode = Cache::get("bot_{$this->record->id}_qrcode");
                     if (!empty($qrCode)) {
                         $this->qrCode = $qrCode;
+                        \Log::info("从缓存获取到 QR 码，机器人 ID: {$this->record->id}");
+                    } else {
+                        \Log::warning("缓存中没有 QR 码，机器人 ID: {$this->record->id}");
                     }
                 } elseif ($this->loginType === 'sms') {
                     $pairingCode = Cache::get("bot_{$this->record->id}_pairing_code");
@@ -414,15 +421,27 @@ class ViewBot extends ViewRecord
                     if (!empty($pairingCode)) {
                         $this->pairingCode = $pairingCode;
                         $this->phoneNumber = $phoneNumber;
+                        \Log::info("从缓存获取到配对码，机器人 ID: {$this->record->id}");
+                    } else {
+                        \Log::warning("缓存中没有配对码，机器人 ID: {$this->record->id}");
                     }
                 }
             }
             
             // 刷新机器人状态
+            $oldStatus = $this->record->status;
             $this->record->refresh();
+            $newStatus = $this->record->status;
+            
+            // 如果状态发生变化，记录日志
+            if ($oldStatus !== $newStatus) {
+                \Log::info("机器人 #{$this->record->id} 状态变化: {$oldStatus} -> {$newStatus}");
+            }
             
             // 如果状态变为 online，停止轮询并清理缓存
-            if ($this->record->status === 'online') {
+            if ($newStatus === 'online') {
+                \Log::info("机器人 #{$this->record->id} 已上线，停止轮询");
+                
                 $this->isPolling = false;
                 $this->qrCode = null;
                 $this->pairingCode = null;

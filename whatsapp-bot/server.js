@@ -241,7 +241,13 @@ class WhatsAppSession {
             console.log(`📱 机器人 #${this.sessionId} 生成 QR 码`);
             try {
                 this.lastQR = await qrcode.toDataURL(qr);
-                await laravel.sendQrCode(this.sessionId, this.lastQR);
+                console.log(`📤 发送 QR 码到 Laravel...`);
+                const qrSent = await laravel.sendQrCode(this.sessionId, this.lastQR);
+                if (qrSent) {
+                    console.log(`✅ 机器人 #${this.sessionId} QR 码已发送到 Laravel`);
+                } else {
+                    console.error(`❌ 机器人 #${this.sessionId} QR 码发送到 Laravel 失败`);
+                }
                 await laravel.updateStatus(this.sessionId, 'connecting', null, '等待扫码登录');
             } catch (error) {
                 console.error(`❌ QR 码处理失败: ${error.message}`);
@@ -256,7 +262,15 @@ class WhatsAppSession {
             const pushname = this.sock.user.name || '未设置';
             
             console.log(`✅ 机器人 #${this.sessionId} 上线！手机号: ${this.phoneNumber}, 昵称: ${pushname}`);
-            await laravel.updateStatus(this.sessionId, 'online', this.phoneNumber, '连接成功');
+            
+            // 发送状态更新到 Laravel
+            console.log(`📤 发送状态更新到 Laravel: online`);
+            const statusUpdated = await laravel.updateStatus(this.sessionId, 'online', this.phoneNumber, '连接成功');
+            if (statusUpdated) {
+                console.log(`✅ 机器人 #${this.sessionId} 状态已更新到 Laravel: online`);
+            } else {
+                console.error(`❌ 机器人 #${this.sessionId} 状态更新到 Laravel 失败`);
+            }
         }
 
         if (connection === 'close') {
@@ -316,11 +330,11 @@ class WhatsAppSession {
                     // 完全登出，删除会话文件
                     await this.sock.logout();
                 } else {
-                    // 只断开连接，保持会话文件
-                    await this.sock.logout();
+                    // 只断开连接，保持会话状态挂起
+                    this.sock.ws.close();
                 }
             } catch (error) {
-                console.error(`❌ 登出失败: ${error.message}`);
+                console.error(`❌ 断开连接失败: ${error.message}`);
             }
         }
         
@@ -328,7 +342,7 @@ class WhatsAppSession {
             await utils.deleteSessionFiles(this.sessionId);
             console.log(`✅ 会话 #${this.sessionId} 已完全停止（会话文件已删除）`);
         } else {
-            console.log(`✅ 会话 #${this.sessionId} 已断开连接（会话文件保留）`);
+            console.log(`✅ 会话 #${this.sessionId} 已断开连接（会话状态已挂起）`);
         }
         
         sessions.delete(this.sessionId);
@@ -596,15 +610,15 @@ process.on('SIGINT', async () => {
     for (const [sessionId, session] of sessions.entries()) {
         if (session.sock) {
             try {
-                // 只断开连接，不删除会话文件，保持会话状态
-                await session.sock.logout();
-                console.log(`📱 会话 #${sessionId} 已断开连接（会话文件保留）`);
+                // 只断开连接，不登出，保持会话状态挂起
+                session.sock.ws.close();
+                console.log(`📱 会话 #${sessionId} 已断开连接（会话状态已挂起）`);
             } catch (error) {
                 console.error(`❌ 断开会话 #${sessionId} 失败: ${error.message}`);
             }
         }
         sessions.delete(sessionId);
     }
-    console.log('✅ 服务已停止，会话文件已保留');
+    console.log('✅ 服务已停止，会话状态已挂起');
     process.exit(0);
 });
