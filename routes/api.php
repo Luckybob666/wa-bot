@@ -542,6 +542,7 @@ Route::post('/bots/{id}/sync-group-user', function (Request $request, $id) {
         $phoneNumber = $request->input('phoneNumber');
         $whatsappUserId = $request->input('whatsappUserId');
         $jid = $request->input('jid');
+        $groupId = $request->input('groupId');
 
         // 创建或更新 WhatsApp 用户
         $whatsappUser = \App\Models\WhatsappUser::updateOrCreate(
@@ -553,6 +554,9 @@ Route::post('/bots/{id}/sync-group-user', function (Request $request, $id) {
                 'jid' => $jid,
                 'nickname' => null,
                 'profile_picture' => null,
+                'group_id' => $groupId,
+                'group_name' => $group->name,
+                'bot_id' => $group->bot_id,
             ]
         );
 

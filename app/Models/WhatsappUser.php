@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -20,6 +21,9 @@ class WhatsappUser extends Model
         'jid',
         'nickname',
         'profile_picture',
+        'group_id',
+        'group_name',
+        'bot_id',
     ];
 
     /**
@@ -29,6 +33,14 @@ class WhatsappUser extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    /**
+     * 获取用户所属的机器人
+     */
+    public function bot(): BelongsTo
+    {
+        return $this->belongsTo(Bot::class);
+    }
 
     /**
      * 获取用户所属的群

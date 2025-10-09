@@ -18,15 +18,26 @@ return new class extends Migration
             $table->string('jid', 200)->nullable()->comment('完整的JID（如：123456789@s.whatsapp.net）');
             $table->string('nickname')->nullable()->comment('用户昵称');
             $table->string('profile_picture', 500)->nullable()->comment('头像URL');
+            
+            // 添加群组和机器人信息字段
+            $table->string('group_id', 100)->nullable()->comment('所属群组ID');
+            $table->string('group_name')->nullable()->comment('所属群组名称');
+            $table->unsignedBigInteger('bot_id')->nullable()->comment('所属机器人ID');
+            
             $table->timestamps();
             
             // 索引
             $table->index('phone_number');
             $table->index('whatsapp_user_id');
             $table->index('jid');
+            $table->index('group_id');
+            $table->index('bot_id');
             
             // 复合唯一索引：手机号或WhatsApp用户ID至少有一个不为空
             $table->unique(['phone_number', 'whatsapp_user_id'], 'unique_user_identifier');
+            
+            // 外键约束
+            $table->foreign('bot_id')->references('id')->on('bots')->onDelete('set null');
         });
     }
 

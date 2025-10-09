@@ -38,56 +38,26 @@ class WhatsappUsersTable
                     ->sortable()
                     ->copyable()
                     ->copyMessage('手机号已复制'),
-                TextColumn::make('group_id')
-                    ->label('群组ID')
-                    ->formatStateUsing(function ($record) {
-                        // 使用已加载的关联关系
-                        $groups = $record->groups ?? collect();
-                        if ($groups->isEmpty()) {
-                            return '未加入任何群组';
-                        }
-                        
-                        return $groups->map(function ($group) {
-                            return $group->group_id;
-                        })->join(', ');
-                    })
-                    ->copyable()
-                    ->copyMessage('群组ID已复制')
-                    ->searchable(),
                 
                 TextColumn::make('group_name')
-                    ->label('群组名称')
-                    ->formatStateUsing(function ($record) {
-                        // 使用已加载的关联关系
-                        $groups = $record->groups ?? collect();
-                        if ($groups->isEmpty()) {
-                            return '未加入任何群组';
-                        }
-                        
-                        return $groups->map(function ($group) {
-                            $botName = $group->bot->name ?? '未知机器人';
-                            return "{$group->name} ({$botName})";
-                        })->join(', ');
-                    })
-                    ->wrap()
-                    ->limit(50)
-                    ->tooltip(function ($record) {
-                        $groups = $record->groups ?? collect();
-                        if ($groups->isEmpty()) {
-                            return null;
-                        }
-                        
-                        return $groups->map(function ($group) {
-                            $botName = $group->bot->name ?? '未知机器人';
-                            return "群组: {$group->name}\n机器人: {$botName}\n群组ID: {$group->group_id}";
-                        })->join("\n\n");
-                    }),
+                    ->label('所属群名字')
+                    ->searchable()
+                    ->sortable()
+                    ->placeholder('未设置'),
                 
-                TextColumn::make('status')
-                    ->label('状态')
-                    ->badge()
-                    ->color(fn ($record) => ($record->groups ?? collect())->count() > 0 ? 'success' : 'warning')
-                    ->formatStateUsing(fn ($record) => ($record->groups ?? collect())->count() > 0 ? '已进群' : '未进群'),
+                TextColumn::make('bot.name')
+                    ->label('所属机器人')
+                    ->searchable()
+                    ->sortable()
+                    ->placeholder('未设置'),
+                
+                TextColumn::make('group_id')
+                    ->label('所属群ID')
+                    ->searchable()
+                    ->sortable()
+                    ->copyable()
+                    ->copyMessage('群组ID已复制')
+                    ->placeholder('未设置'),
                 TextColumn::make('created_at')
                     ->label('创建时间')
                     ->dateTime('Y-m-d H:i:s')
@@ -100,20 +70,7 @@ class WhatsappUsersTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                SelectFilter::make('status')
-                    ->label('进群状态')
-                    ->options([
-                        'joined' => '已进群',
-                        'not_joined' => '未进群',
-                    ])
-                    ->query(function ($query, array $data) {
-                        if ($data['value'] === 'joined') {
-                            return $query->has('groups');
-                        } elseif ($data['value'] === 'not_joined') {
-                            return $query->doesntHave('groups');
-                        }
-                        return $query;
-                    }),
+                // 可以添加其他过滤器，如按机器人筛选
             ])
             ->recordActions([
                 ViewAction::make(),
