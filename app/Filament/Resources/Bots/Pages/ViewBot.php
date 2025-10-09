@@ -368,6 +368,7 @@ class ViewBot extends ViewRecord
 
     public function startPolling()
     {
+        \Log::info("开始轮询，机器人 ID: {$this->record->id}");
         $this->isPolling = true;
         $this->dispatch('start-qr-polling');
     }
@@ -375,6 +376,7 @@ class ViewBot extends ViewRecord
     #[On('poll-qr-code')]
     public function checkQrCode()
     {
+        \Log::info("轮询检查 QR 码，机器人 ID: {$this->record->id}, 当前状态: {$this->record->status}");
         $this->checkStatus();
     }
 
@@ -394,6 +396,8 @@ class ViewBot extends ViewRecord
                     if (!empty($data['qr'])) {
                         $this->qrCode = $data['qr'];
                         \Log::info("从 Node.js 获取到 QR 码，机器人 ID: {$this->record->id}");
+                        // 强制刷新页面显示
+                        $this->dispatch('$refresh');
                     }
                     
                     // 更新配对码（验证码登录）
@@ -412,6 +416,8 @@ class ViewBot extends ViewRecord
                     if (!empty($qrCode)) {
                         $this->qrCode = $qrCode;
                         \Log::info("从缓存获取到 QR 码，机器人 ID: {$this->record->id}");
+                        // 强制刷新页面显示
+                        $this->dispatch('$refresh');
                     } else {
                         \Log::warning("缓存中没有 QR 码，机器人 ID: {$this->record->id}");
                     }
