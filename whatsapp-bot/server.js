@@ -305,10 +305,10 @@ class WhatsAppSession {
                 await utils.deleteSessionFiles(this.sessionId);
                 await laravel.updateStatus(this.sessionId, 'offline', null, '会话已过期，请重新登录');
             } else if (statusCode === 515 || statusCode === 428) {
-                console.log(`🔄 机器人 #${this.sessionId} 配对成功，重启中...`);
-                await laravel.updateStatus(this.sessionId, 'connecting', null, '配对成功，正在连接...');
-                sessions.delete(this.sessionId);
-                setTimeout(() => new WhatsAppSession(this.sessionId, this.loginType).create(), 3000);
+                // 515/428 是正常的配对流程，不需要重启，等待自动重连即可
+                console.log(`🔄 机器人 #${this.sessionId} 正在完成配对流程...`);
+                await laravel.updateStatus(this.sessionId, 'connecting', null, '正在完成配对...');
+                // 不删除session，让Baileys自动处理重连
             } else {
                 console.log(`🔄 机器人 #${this.sessionId} 5秒后重连`);
                 this.status = 'close';

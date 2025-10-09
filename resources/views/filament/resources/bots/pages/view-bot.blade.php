@@ -22,8 +22,9 @@
             pollingInterval = setInterval(() => {
                 if (!isPolling) {
                     isPolling = true;
-                    console.log('轮询检查 QR 码...');
+                    console.log('轮询检查状态和 QR 码...');
                     $wire.call('checkQrCode').then(() => {
+                        console.log('轮询检查完成');
                         isPolling = false;
                     }).catch((error) => {
                         console.error('轮询错误:', error);
@@ -32,7 +33,7 @@
                 } else {
                     console.log('跳过轮询，上次请求还在进行中...');
                 }
-            }, 3000); // 每3秒检查一次，避免请求冲突
+            }, 2000); // 每2秒检查一次，确保能及时检测到状态变化
         });
         
         // 停止轮询
@@ -54,18 +55,16 @@
         
         // 当机器人状态变为 online 时停止轮询
         $wire.on('bot-connected', () => {
-            console.log('机器人已连接，停止轮询并刷新页面...');
+            console.log('机器人已连接，停止轮询...');
             if (pollingInterval) {
                 clearInterval(pollingInterval);
                 pollingInterval = null;
             }
             isPolling = false;
             
-            // 延迟刷新页面，确保后端状态已更新
-            setTimeout(() => {
-                console.log('刷新页面组件...');
-                window.location.reload();
-            }, 1000);
+            // 立即刷新页面，显示在线状态
+            console.log('立即刷新页面...');
+            window.location.reload();
         });
         
         // 处理延迟检查事件
