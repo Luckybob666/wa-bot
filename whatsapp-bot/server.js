@@ -296,13 +296,6 @@ class WhatsAppSession {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const isLoggedOut = statusCode === DisconnectReason.loggedOut;
             
-            // 515和428是配对成功信号，不是真正的错误
-            if (statusCode === 515 || statusCode === 428) {
-                console.log(`✅ 机器人 #${this.sessionId} 配对成功，等待重连...`);
-                // 不需要手动重启，Baileys会自动重连
-                return;
-            }
-            
             console.log(`❌ 机器人 #${this.sessionId} 断开 [${statusCode || 'unknown'}]`);
             
             if (isLoggedOut) {
@@ -311,6 +304,13 @@ class WhatsAppSession {
                 sessions.delete(this.sessionId);
                 await utils.deleteSessionFiles(this.sessionId);
                 await laravel.updateStatus(this.sessionId, 'offline', null, '会话已过期，请重新登录');
+            } else if (statusCode === 515 || statusCode === 428) {
+                // 515和428是配对成功信号，需要快速重连
+                console.log(`✅ 机器人 #${this.sessionId} 配对成功，立即重连...`);
+                await laravel.updateStatus(this.sessionId, 'connecting', null, '配对成功，正在连接...');
+                sessions.delete(this.sessionId);
+                // 立即重连，不需要等待
+                setTimeout(() => new WhatsAppSession(this.sessionId, this.loginType).create(), 1000);
             } else {
                 console.log(`🔄 机器人 #${this.sessionId} 5秒后重连`);
                 this.status = 'close';
