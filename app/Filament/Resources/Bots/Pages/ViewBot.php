@@ -468,7 +468,6 @@ class ViewBot extends ViewRecord
                 $this->isPolling = false;
                 $this->qrCode = null;
                 $this->pairingCode = null;
-                $this->loginType = null;
                 
                 // 清理缓存
                 Cache::forget("bot_{$this->record->id}_qrcode");
