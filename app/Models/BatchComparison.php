@@ -15,8 +15,10 @@ class BatchComparison extends Model
         'group_id',
         'matched_numbers',
         'unmatched_numbers',
+        'extra_numbers',
         'matched_count',
         'unmatched_count',
+        'extra_count',
         'match_rate',
         'status',
         'completed_at',
@@ -25,8 +27,10 @@ class BatchComparison extends Model
     protected $casts = [
         'matched_numbers' => 'array',
         'unmatched_numbers' => 'array',
+        'extra_numbers' => 'array',
         'matched_count' => 'integer',
         'unmatched_count' => 'integer',
+        'extra_count' => 'integer',
         'match_rate' => 'decimal:2',
         'completed_at' => 'datetime',
     ];
@@ -131,20 +135,79 @@ class BatchComparison extends Model
     }
 
     /**
+     * 获取群里多出的手机号列表
+     */
+    public function getExtraNumbers(): array
+    {
+        return $this->extra_numbers ?? [];
+    }
+
+    /**
      * 设置比对结果
      */
-    public function setComparisonResults(array $matchedNumbers, array $unmatchedNumbers): void
+    public function setComparisonResults(array $matchedNumbers, array $unmatchedNumbers, array $extraNumbers = []): void
     {
         $this->matched_numbers = $matchedNumbers;
         $this->unmatched_numbers = $unmatchedNumbers;
+        $this->extra_numbers = $extraNumbers;
         $this->matched_count = count($matchedNumbers);
         $this->unmatched_count = count($unmatchedNumbers);
+        $this->extra_count = count($extraNumbers);
         
         $totalCount = $this->matched_count + $this->unmatched_count;
         $this->match_rate = $totalCount > 0 ? round(($this->matched_count / $totalCount) * 100, 2) : 0;
         
         $this->status = self::STATUS_COMPLETED;
         $this->completed_at = now();
+    }
+
+    /**
+     * 导出为CSV
+     */
+    public function exportToCsv(): string
+    {
+        $csv = [];
+        
+        // CSV头部
+        $csv[] = ['类型', '手机号', '说明'];
+        
+        // 批次中已进群的号码
+        foreach ($this->getMatchedNumbers() as $number) {
+            $csv[] = ['已进群', $number, '批次中的号码已在群里'];
+        }
+        
+        // 批次中未进群的号码
+        foreach ($this->getUnmatchedNumbers() as $number) {
+            $csv[] = ['未进群', $number, '批次中的号码不在群里'];
+        }
+        
+        // 群里多出的号码
+        foreach ($this->getExtraNumbers() as $number) {
+            $csv[] = ['群里多出', $number, '群里的号码不在批次中'];
+        }
+        
+        return $this->arrayToCsv($csv);
+    }
+
+    /**
+     * 将数组转换为CSV字符串
+     */
+    private function arrayToCsv(array $data): string
+    {
+        $output = fopen('php://temp', 'r+');
+        
+        // 添加BOM以支持Excel打开中文
+        fputs($output, "\xEF\xBB\xBF");
+        
+        foreach ($data as $row) {
+            fputcsv($output, $row);
+        }
+        
+        rewind($output);
+        $csv = stream_get_contents($output);
+        fclose($output);
+        
+        return $csv;
     }
 
     /**

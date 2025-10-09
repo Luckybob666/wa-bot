@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Groups\Tables;
 use App\Models\Bot;
 use App\Models\Group;
 use App\Models\PhoneBatch;
+use App\Services\ComparisonService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -96,19 +97,34 @@ class GroupsTable
                     ->form([
                         Select::make('phone_batch_id')
                             ->label('选择手机号批次')
-                            ->options(PhoneBatch::pluck('name', 'id'))
+                            ->options(function () {
+                                return PhoneBatch::where('status', 'completed')
+                                    ->orderBy('created_at', 'desc')
+                                    ->pluck('name', 'id');
+                            })
                             ->searchable()
+                            ->preload()
                             ->required()
+                            ->placeholder('请选择一个已完成的批次')
+                            ->helperText('只显示已完成的手机号批次')
                     ])
                     ->action(function (Group $record, array $data): void {
                         $batch = PhoneBatch::find($data['phone_batch_id']);
-                        $record->bindBatch($batch);
-                        
-                        Notification::make()
-                            ->title('绑定成功')
-                            ->body("群组已绑定到批次：{$batch->name}")
-                            ->success()
-                            ->send();
+                        if ($batch) {
+                            $record->bindBatch($batch);
+                            
+                            Notification::make()
+                                ->title('绑定成功')
+                                ->body("群组已绑定到批次：{$batch->name}")
+                                ->success()
+                                ->send();
+                        } else {
+                            Notification::make()
+                                ->title('绑定失败')
+                                ->body('所选批次不存在')
+                                ->danger()
+                                ->send();
+                        }
                     })
                     ->visible(fn (Group $record): bool => !$record->hasBatchBinding()),
                 
@@ -126,6 +142,42 @@ class GroupsTable
                             ->body("已解绑批次：{$batchName}")
                             ->success()
                             ->send();
+                    })
+                    ->visible(fn (Group $record): bool => $record->hasBatchBinding()),
+                
+                Action::make('compare_batch')
+                    ->label('开始比对')
+                    ->icon('heroicon-o-chart-bar')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalHeading('开始号码比对')
+                    ->modalDescription(fn (Group $record): string => 
+                        "将对比批次【{$record->phoneBatch->name}】与群组【{$record->name}】中的号码"
+                    )
+                    ->modalSubmitActionLabel('开始比对')
+                    ->action(function (Group $record): void {
+                        try {
+                            $comparisonService = app(ComparisonService::class);
+                            $comparison = $comparisonService->compare($record->phoneBatch, $record);
+                            
+                            Notification::make()
+                                ->title('比对完成')
+                                ->body(sprintf(
+                                    '已进群: %d 个，未进群: %d 个，群里多出: %d 个，匹配率: %.2f%%',
+                                    $comparison->matched_count,
+                                    $comparison->unmatched_count,
+                                    $comparison->extra_count,
+                                    $comparison->match_rate
+                                ))
+                                ->success()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('比对失败')
+                                ->body('比对过程中发生错误：' . $e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
                     })
                     ->visible(fn (Group $record): bool => $record->hasBatchBinding()),
                 

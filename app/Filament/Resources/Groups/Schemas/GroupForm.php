@@ -47,6 +47,18 @@ class GroupForm
                     ->default(0)
                     ->minValue(0)
                     ->placeholder('当前群成员数量'),
+                
+                Select::make('phone_batch_id')
+                    ->label('绑定手机号批次')
+                    ->options(function () {
+                        return \App\Models\PhoneBatch::where('status', 'completed')
+                            ->orderBy('created_at', 'desc')
+                            ->pluck('name', 'id');
+                    })
+                    ->searchable()
+                    ->preload()
+                    ->placeholder('请选择一个批次（可选）')
+                    ->helperText('绑定后可以进行号码比对'),
             ]);
     }
 }

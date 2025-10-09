@@ -15,10 +15,19 @@ return new class extends Migration
             $table->id();
             $table->foreignId('phone_batch_id')->constrained('phone_batches')->onDelete('cascade')->comment('关联手机号批次ID');
             $table->foreignId('group_id')->constrained('groups')->onDelete('cascade')->comment('关联群组ID');
-            $table->text('matched_numbers')->comment('已匹配的手机号（JSON格式）');
-            $table->text('unmatched_numbers')->comment('未匹配的手机号（JSON格式）');
-            $table->integer('matched_count')->default(0)->comment('匹配数量');
-            $table->integer('unmatched_count')->default(0)->comment('未匹配数量');
+            
+            // 批次中匹配到的号码（在群里）
+            $table->text('matched_numbers')->nullable()->comment('批次中已进群的手机号（JSON格式）');
+            $table->integer('matched_count')->default(0)->comment('批次中已进群数量');
+            
+            // 批次中未匹配的号码（不在群里）
+            $table->text('unmatched_numbers')->nullable()->comment('批次中未进群的手机号（JSON格式）');
+            $table->integer('unmatched_count')->default(0)->comment('批次中未进群数量');
+            
+            // 群里多出来的号码（不在批次中）
+            $table->text('extra_numbers')->nullable()->comment('群里多出的手机号（不在批次中，JSON格式）');
+            $table->integer('extra_count')->default(0)->comment('群里多出的号码数量');
+            
             $table->decimal('match_rate', 5, 2)->default(0)->comment('匹配率（百分比）');
             $table->enum('status', ['pending', 'processing', 'completed', 'failed'])->default('pending')->comment('比对状态');
             $table->timestamp('completed_at')->nullable()->comment('完成时间');
