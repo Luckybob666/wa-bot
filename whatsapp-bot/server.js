@@ -238,19 +238,24 @@ class WhatsAppSession {
         }
 
         if (qr && this.loginType === 'qr') {
-            console.log(`📱 机器人 #${this.sessionId} 生成 QR 码`);
-            try {
-                this.lastQR = await qrcode.toDataURL(qr);
-                console.log(`📤 发送 QR 码到 Laravel...`);
-                const qrSent = await laravel.sendQrCode(this.sessionId, this.lastQR);
-                if (qrSent) {
-                    console.log(`✅ 机器人 #${this.sessionId} QR 码已发送到 Laravel`);
-                } else {
-                    console.error(`❌ 机器人 #${this.sessionId} QR 码发送到 Laravel 失败`);
+            // 避免重复发送相同的QR码
+            if (!this.lastQR || this.lastQR !== qr) {
+                console.log(`📱 机器人 #${this.sessionId} 生成 QR 码`);
+                try {
+                    this.lastQR = await qrcode.toDataURL(qr);
+                    console.log(`📤 发送 QR 码到 Laravel...`);
+                    const qrSent = await laravel.sendQrCode(this.sessionId, this.lastQR);
+                    if (qrSent) {
+                        console.log(`✅ 机器人 #${this.sessionId} QR 码已发送到 Laravel`);
+                    } else {
+                        console.error(`❌ 机器人 #${this.sessionId} QR 码发送到 Laravel 失败`);
+                    }
+                    await laravel.updateStatus(this.sessionId, 'connecting', null, '等待扫码登录');
+                } catch (error) {
+                    console.error(`❌ QR 码处理失败: ${error.message}`);
                 }
-                await laravel.updateStatus(this.sessionId, 'connecting', null, '等待扫码登录');
-            } catch (error) {
-                console.error(`❌ QR 码处理失败: ${error.message}`);
+            } else {
+                console.log(`📱 机器人 #${this.sessionId} QR 码未变化，跳过发送`);
             }
         }
 

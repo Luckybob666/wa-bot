@@ -61,6 +61,14 @@
             }
             isPolling = false;
         });
+        
+        // 处理延迟检查事件
+        $wire.on('check-qr-delayed', () => {
+            console.log('收到延迟检查 QR 码事件...');
+            setTimeout(() => {
+                $wire.call('checkQrDelayed');
+            }, 3000); // 3秒后检查
+        });
     </script>
     @endscript
 </x-filament-panels::page>

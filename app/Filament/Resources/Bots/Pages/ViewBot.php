@@ -190,7 +190,18 @@ class ViewBot extends ViewRecord
                 if ($response->successful()) {
                     $this->record->update(['status' => 'connecting']);
                     $this->record->refresh();
+                    
+                    // 立即开始轮询
                     $this->startPolling();
+                    
+                    // 延迟检查QR码，确保Node.js有时间生成
+                    $this->dispatch('check-qr-delayed');
+                    
+                    // 备用方案：直接延迟检查
+                    dispatch(function() {
+                        sleep(3); // 等待3秒
+                        $this->checkStatus();
+                    })->delay(3);
                     
                     Notification::make()
                         ->title('机器人启动中')
@@ -377,6 +388,13 @@ class ViewBot extends ViewRecord
     public function checkQrCode()
     {
         \Log::info("轮询检查 QR 码，机器人 ID: {$this->record->id}, 当前状态: {$this->record->status}");
+        $this->checkStatus();
+    }
+
+    #[On('check-qr-delayed')]
+    public function checkQrDelayed()
+    {
+        \Log::info("延迟检查 QR 码，机器人 ID: {$this->record->id}");
         $this->checkStatus();
     }
 
