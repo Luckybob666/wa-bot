@@ -2,10 +2,32 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Cache;
 use App\Models\Bot;
 use App\Models\Group;
 use App\Models\GroupEvent;
-use Illuminate\Support\Facades\Cache;
+
+if (!function_exists('findBotOrResponse')) {
+    function findBotOrResponse(int|string $id, string $context)
+    {
+        $bot = Bot::find($id);
+        if (!$bot) {
+            $message = "No query results for model [App\\Models\\Bot] {$id}";
+            \Log::warning("机器人不存在", [
+                'bot_id' => $id,
+                'context' => $context,
+                'message' => $message,
+            ]);
+
+            return [null, response()->json([
+                'success' => false,
+                'message' => $message,
+            ], 404)];
+        }
+
+        return [$bot, null];
+    }
+}
 
 // 接收 QR 码（移除认证中间件）
 Route::post('bots/{id}/qr-code', function (Request $request, $id) {
@@ -13,7 +35,10 @@ Route::post('bots/{id}/qr-code', function (Request $request, $id) {
         \Log::info("收到 QR 码请求，机器人 ID: {$id}");
         \Log::info("请求数据: " . json_encode($request->all()));
         
-        $bot = Bot::findOrFail($id);
+        [$bot, $notFound] = findBotOrResponse($id, 'qr-code');
+        if (!$bot) {
+            return $notFound;
+        }
         
         $qrCode = $request->input('qrCode');
         
@@ -101,7 +126,10 @@ Route::post('/bots/{id}/pairing-code', function (Request $request, $id) {
         \Log::info("收到配对码请求，机器人 ID: {$id}");
         \Log::info("请求数据: " . json_encode($request->all()));
         
-        $bot = Bot::findOrFail($id);
+        [$bot, $notFound] = findBotOrResponse($id, 'pairing-code');
+        if (!$bot) {
+            return $notFound;
+        }
         
         $pairingCode = $request->input('pairingCode');
         $phoneNumber = $request->input('phoneNumber');
@@ -168,7 +196,10 @@ Route::post('/bots/{id}/status', function (Request $request, $id) {
         \Log::info("收到状态更新请求，机器人 ID: {$id}");
         \Log::info("状态更新数据: " . json_encode($request->all()));
         
-        $bot = Bot::findOrFail($id);
+        [$bot, $notFound] = findBotOrResponse($id, 'status');
+        if (!$bot) {
+            return $notFound;
+        }
         
         $updateData = [
             'status' => $request->input('status'),
@@ -209,7 +240,10 @@ Route::post('/bots/{id}/status', function (Request $request, $id) {
 
 // 更新机器人最后活跃时间
 Route::post('/bots/{id}/last-seen', function (Request $request, $id) {
-    $bot = Bot::findOrFail($id);
+    [$bot, $notFound] = findBotOrResponse($id, 'last-seen');
+    if (!$bot) {
+        return $notFound;
+    }
     
     $bot->update([
         'last_seen' => now(),
@@ -249,7 +283,10 @@ Route::post('/group-events', function (Request $request) {
 
 // 启动机器人
 Route::post('/bots/{id}/start', function (Request $request, $id) {
-    $bot = Bot::findOrFail($id);
+    [$bot, $notFound] = findBotOrResponse($id, 'sync-group');
+    if (!$bot) {
+        return $notFound;
+    }
     
     // 这里应该通知 Node.js 机器人启动
     // 暂时只更新状态
@@ -266,7 +303,10 @@ Route::post('/bots/{id}/start', function (Request $request, $id) {
 
 // 同步群组数据
 Route::post('/bots/{id}/sync-group', function (Request $request, $id) {
-    $bot = Bot::findOrFail($id);
+    [$bot, $notFound] = findBotOrResponse($id, 'start-legacy');
+    if (!$bot) {
+        return $notFound;
+    }
 
     $group = Group::updateOrCreate(
         [
@@ -290,7 +330,10 @@ Route::post('/bots/{id}/sync-group', function (Request $request, $id) {
 
 // 启动机器人
 Route::post('/bots/{id}/start', function (Request $request, $id) {
-    $bot = Bot::findOrFail($id);
+    [$bot, $notFound] = findBotOrResponse($id, 'start');
+    if (!$bot) {
+        return $notFound;
+    }
     
     try {
         // 从配置读取 Node.js 服务器地址
@@ -325,7 +368,10 @@ Route::post('/bots/{id}/start', function (Request $request, $id) {
 
 // 停止机器人
 Route::post('/bots/{id}/stop', function (Request $request, $id) {
-    $bot = Bot::findOrFail($id);
+    [$bot, $notFound] = findBotOrResponse($id, 'stop');
+    if (!$bot) {
+        return $notFound;
+    }
     
     try {
         // 从配置读取 Node.js 服务器地址
@@ -352,7 +398,10 @@ Route::post('/bots/{id}/stop', function (Request $request, $id) {
 
 // 手动同步群组用户（用于测试）
 Route::post('/bots/{id}/manual-sync-users', function (Request $request, $id) {
-    $bot = Bot::findOrFail($id);
+    [$bot, $notFound] = findBotOrResponse($id, 'manual-sync-users');
+    if (!$bot) {
+        return $notFound;
+    }
     
     try {
         $nodeUrl = config('app.node_server.url');
@@ -441,7 +490,10 @@ Route::post('/bots/{id}/sync-group-user-phone', function (Request $request, $id)
             'request_data' => $request->all()
         ]);
 
-        $bot = Bot::findOrFail($id);
+        [$bot, $notFound] = findBotOrResponse($id, 'sync-group-user-phone');
+        if (!$bot) {
+            return $notFound;
+        }
 
         // 查找群组
         $group = Group::where('bot_id', $bot->id)
@@ -536,7 +588,10 @@ Route::post('/bots/{id}/sync-group-user', function (Request $request, $id) {
             'request_data' => $request->all()
         ]);
 
-        $bot = Bot::findOrFail($id);
+        [$bot, $notFound] = findBotOrResponse($id, 'sync-group-user');
+        if (!$bot) {
+            return $notFound;
+        }
 
         // 查找群组
         $group = Group::where('bot_id', $bot->id)
