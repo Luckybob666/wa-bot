@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\BatchComparisons\Pages;
 
 use App\Filament\Resources\BatchComparisons\BatchComparisonResource;
-use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListBatchComparisons extends ListRecords
@@ -12,8 +11,6 @@ class ListBatchComparisons extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [
-            CreateAction::make(),
-        ];
+        return [];
     }
 }

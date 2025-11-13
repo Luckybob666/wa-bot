@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\BatchComparisons;
 
-use App\Filament\Resources\BatchComparisons\Pages\CreateBatchComparison;
 use App\Filament\Resources\BatchComparisons\Pages\EditBatchComparison;
 use App\Filament\Resources\BatchComparisons\Pages\ListBatchComparisons;
 use App\Filament\Resources\BatchComparisons\Pages\ViewBatchComparison;
@@ -58,7 +57,6 @@ class BatchComparisonResource extends Resource
     {
         return [
             'index' => ListBatchComparisons::route('/'),
-            'create' => CreateBatchComparison::route('/create'),
             'view' => ViewBatchComparison::route('/{record}'),
             'edit' => EditBatchComparison::route('/{record}/edit'),
         ];
