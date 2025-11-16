@@ -9,14 +9,11 @@ use App\Services\ComparisonService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
-use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use Illuminate\Support\Facades\Http;
 
 class GroupsTable
 {
@@ -27,40 +24,111 @@ class GroupsTable
                 TextColumn::make('bot.name')
                     ->label('所属机器人')
                     ->sortable()
-                    ->searchable()
-                    ->copyable()
-                    ->copyMessage('群 ID 已复制'),
+                    ->searchable(),
                 TextColumn::make('name')
                     ->label('群名称')
                     ->searchable()
                     ->sortable()
                     ->copyable()
-                    ->copyMessage('群 ID 已复制'),
+                    ->copyMessage('群名称已复制'),
                 TextColumn::make('group_id')
                     ->label('群 ID')
                     ->searchable()
                     ->copyable()
                     ->copyMessage('群 ID 已复制'),
-                TextColumn::make('member_count')
-                    ->label('成员数量')
-                    ->numeric()
-                    ->sortable()
+                TextColumn::make('status')
+                    ->label('群状态')
                     ->badge()
-                    ->color('success'),
+                    ->color(fn (string $state): string => match ($state) {
+                        'active' => 'success',
+                        'removed' => 'danger',
+                        default => 'gray',
+                    })
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'active' => '活跃',
+                        'removed' => '已退出',
+                        default => '未知',
+                    })
+                    ->sortable(),
+                TextColumn::make('current_member_count')
+                    ->label('当前人数')
+                    ->numeric()
+                    ->sortable(query: function ($query, string $direction) {
+                        return $query->orderBy('member_count', $direction);
+                    })
+                    ->badge()
+                    ->color('success')
+                    ->getStateUsing(fn (Group $record): int => $record->getCurrentMemberCount()),
+                TextColumn::make('original_member_count')
+                    ->label('原有人数')
+                    ->numeric()
+                    ->sortable(query: function ($query, string $direction) {
+                        return $query->orderBy('initial_member_count', $direction);
+                    })
+                    ->badge()
+                    ->color('info')
+                    ->getStateUsing(fn (Group $record): int => $record->getOriginalMemberCount())
+                    ->placeholder('未记录'),
+                TextColumn::make('new_joined_count')
+                    ->label('新进群人数')
+                    ->numeric()
+                    ->badge()
+                    ->color('warning')
+                    ->tooltip('包含已退出的成员')
+                    ->getStateUsing(fn (Group $record): int => $record->getNewJoinedMemberCount()),
+                TextColumn::make('left_count')
+                    ->label('退出人数')
+                    ->numeric()
+                    ->badge()
+                    ->color('gray')
+                    ->getStateUsing(fn (Group $record): int => $record->getLeftMemberCount()),
+                TextColumn::make('removed_count')
+                    ->label('被移除用户')
+                    ->numeric()
+                    ->badge()
+                    ->color('danger')
+                    ->getStateUsing(fn (Group $record): int => $record->getRemovedMemberCount()),
                 TextColumn::make('phoneBatch.name')
                     ->label('绑定批次')
                     ->placeholder('未绑定')
                     ->badge()
                     ->color(fn ($state) => $state ? 'info' : 'gray'),
-                TextColumn::make('auto_compare_enabled')
-                    ->label('自动比对')
+                TextColumn::make('matched_count')
+                    ->label('已进群数量')
+                    ->numeric()
                     ->badge()
-                    ->color(fn ($state) => $state ? 'success' : 'gray')
-                    ->formatStateUsing(fn ($state) => $state ? '已启用' : '未启用'),
-                TextColumn::make('last_sync_at')
-                    ->label('最后同步')
+                    ->color('success')
+                    ->sortable()
+                    ->default(0),
+                TextColumn::make('unmatched_count')
+                    ->label('未进群数量')
+                    ->numeric()
+                    ->badge()
+                    ->color('warning')
+                    ->sortable()
+                    ->default(0),
+                TextColumn::make('extra_count')
+                    ->label('群里多出')
+                    ->numeric()
+                    ->badge()
+                    ->color('danger')
+                    ->sortable()
+                    ->default(0),
+                TextColumn::make('match_rate')
+                    ->label('匹配率')
+                    ->numeric()
+                    ->suffix('%')
+                    ->badge()
+                    ->color(fn (float $state): string => match (true) {
+                        $state >= 80 => 'success',
+                        $state >= 50 => 'warning',
+                        default => 'danger',
+                    })
+                    ->sortable()
+                    ->default(0),
+                TextColumn::make('updated_at')
+                    ->label('最后更新')
                     ->dateTime('Y-m-d H:i')
-                    ->placeholder('从未同步')
                     ->sortable(),
                 TextColumn::make('description')
                     ->label('描述')
@@ -68,7 +136,8 @@ class GroupsTable
                     ->tooltip(function (TextColumn $column): ?string {
                         $state = $column->getState();
                         return strlen($state) > 50 ? $state : null;
-                    }),
+                    })
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('created_at')
                     ->label('创建时间')
                     ->dateTime('Y-m-d H:i:s')
@@ -86,10 +155,28 @@ class GroupsTable
                     ->relationship('bot', 'name')
                     ->searchable()
                     ->preload(),
+                SelectFilter::make('status')
+                    ->label('群状态')
+                    ->options([
+                        'active' => '活跃',
+                        'removed' => '已退出',
+                    ]),
+                SelectFilter::make('phone_batch_id')
+                    ->label('是否绑定批次')
+                    ->options([
+                        '1' => '已绑定',
+                        '0' => '未绑定',
+                    ])
+                    ->query(function ($query, array $data) {
+                        if ($data['value'] === '1') {
+                            return $query->whereNotNull('phone_batch_id');
+                        } elseif ($data['value'] === '0') {
+                            return $query->whereNull('phone_batch_id');
+                        }
+                        return $query;
+                    }),
             ])
             ->recordActions([
-                ViewAction::make(),
-                EditAction::make(),
                 Action::make('bind_batch')
                     ->label('绑定批次')
                     ->icon('heroicon-o-link')
@@ -108,14 +195,24 @@ class GroupsTable
                             ->required()
                             ->placeholder('请选择批次')
                     ])
-                    ->action(function (Group $record, array $data): void {
+                    ->action(function (Group $record, array $data) {
                         $batch = PhoneBatch::find($data['phone_batch_id']);
                         if ($batch) {
+                            // 绑定批次（内部会调用 updateBatchComparison）
                             $record->bindBatch($batch);
+                            
+                            // 刷新记录以获取最新的比对数据
+                            $record->refresh();
+                            
+                            // 获取比对结果用于显示
+                            $matchedCount = $record->matched_count ?? 0;
+                            $unmatchedCount = $record->unmatched_count ?? 0;
+                            $extraCount = $record->extra_count ?? 0;
+                            $matchRate = $record->match_rate ?? 0;
                             
                             Notification::make()
                                 ->title('绑定成功')
-                                ->body("群组已绑定到批次：{$batch->name}")
+                                ->body("群组已绑定到批次：{$batch->name}。比对结果：已进群 {$matchedCount}，未进群 {$unmatchedCount}，群里多出 {$extraCount}，匹配率 {$matchRate}%")
                                 ->success()
                                 ->send();
                         } else {
@@ -145,103 +242,29 @@ class GroupsTable
                     })
                     ->visible(fn (Group $record): bool => $record->hasBatchBinding()),
                 
-                Action::make('compare_batch')
-                    ->label('开始比对')
-                    ->icon('heroicon-o-chart-bar')
-                    ->color('warning')
-                    ->requiresConfirmation()
-                    ->modalHeading('开始号码比对')
-                    ->modalDescription(fn (Group $record): string => 
-                        "将对比批次【{$record->phoneBatch->name}】与群组【{$record->name}】中的号码"
-                    )
-                    ->modalSubmitActionLabel('开始比对')
-                    ->action(function (Group $record): void {
+                Action::make('export_csv')
+                    ->label('导出CSV')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->color('gray')
+                    ->action(function (Group $record) {
                         try {
-                            $comparisonService = app(ComparisonService::class);
-                            $comparison = $comparisonService->compare($record->phoneBatch, $record);
+                            $csvContent = $record->exportUsersToCsv();
+                            $fileName = '群组_' . $record->name . '_' . date('Y-m-d_H-i-s') . '.csv';
                             
-                            Notification::make()
-                                ->title('比对完成')
-                                ->body(sprintf(
-                                    '已进群: %d 个，未进群: %d 个，群里多出: %d 个，匹配率: %.2f%%',
-                                    $comparison->matched_count,
-                                    $comparison->unmatched_count,
-                                    $comparison->extra_count,
-                                    $comparison->match_rate
-                                ))
-                                ->success()
-                                ->send();
-                        } catch (\Exception $e) {
-                            Notification::make()
-                                ->title('比对失败')
-                                ->body('比对过程中发生错误：' . $e->getMessage())
-                                ->danger()
-                                ->send();
-                        }
-                    })
-                    ->visible(fn (Group $record): bool => $record->hasBatchBinding()),
-                
-                Action::make('sync_users')
-                    ->label('更新群组用户')
-                    ->icon('heroicon-o-arrow-path')
-                    ->color('success')
-                    ->action(function (Group $record): void {
-                        try {
-                            $nodeUrl = config('app.node_server.url');
-                            $timeout = config('app.node_server.timeout', 30);
-                            
-                            Notification::make()
-                                ->title('正在同步')
-                                ->body('正在获取群组用户信息，请稍候...')
-                                ->info()
-                                ->send();
-                            
-                            $response = Http::timeout($timeout)->post($nodeUrl . '/api/bot/' . $record->bot_id . '/sync-group-users', [
-                                'groupId' => $record->group_id
+                            return response()->streamDownload(function () use ($csvContent) {
+                                echo $csvContent;
+                            }, $fileName, [
+                                'Content-Type' => 'text/csv; charset=UTF-8',
+                                'Content-Disposition' => 'attachment; filename="' . $fileName . '"',
                             ]);
-                            
-                            if ($response->successful()) {
-                                $data = $response->json();
-                                $record->updateLastSyncTime();
-                                
-                                $syncedCount = $data['data']['syncedCount'] ?? 0;
-                                $groupName = $data['data']['groupName'] ?? '群组';
-                                
-                                Notification::make()
-                                    ->title('用户手机号码同步成功')
-                                    ->body("已同步 {$groupName} 中的 {$syncedCount} 个用户手机号码")
-                                    ->success()
-                                    ->send();
-                            } else {
-                                $errorData = $response->json();
-                                $errorMessage = $errorData['message'] ?? '未知错误';
-                                
-                                // 如果是机器人未找到，更新机器人状态
-                                if ($response->status() === 404) {
-                                    $record->bot->update(['status' => 'offline']);
-                                }
-                                
-                                Notification::make()
-                                    ->title('同步失败')
-                                    ->body($errorMessage)
-                                    ->danger()
-                                    ->send();
-                            }
-                        } catch (\Illuminate\Http\Client\ConnectionException $e) {
-                            Notification::make()
-                                ->title('连接失败')
-                                ->body('无法连接到 Node.js 服务器，请确保服务器正在运行')
-                                ->danger()
-                                ->send();
                         } catch (\Exception $e) {
                             Notification::make()
-                                ->title('同步失败')
-                                ->body('同步过程中发生错误：' . $e->getMessage())
+                                ->title('导出失败')
+                                ->body('导出过程中发生错误：' . $e->getMessage())
                                 ->danger()
                                 ->send();
                         }
-                    })
-                    ->visible(fn (Group $record): bool => $record->bot->status === 'online'),
+                    }),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

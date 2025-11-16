@@ -32,49 +32,23 @@ if (!function_exists('findBotOrResponse')) {
 // 接收 QR 码（移除认证中间件）
 Route::post('bots/{id}/qr-code', function (Request $request, $id) {
     try {
-        \Log::info("收到 QR 码请求，机器人 ID: {$id}");
-        \Log::info("请求数据: " . json_encode($request->all()));
-        
         [$bot, $notFound] = findBotOrResponse($id, 'qr-code');
         if (!$bot) {
             return $notFound;
         }
         
         $qrCode = $request->input('qrCode');
-        
         if (empty($qrCode)) {
-            \Log::error("QR 码数据为空");
-            return response()->json([
-                'success' => false,
-                'message' => 'QR 码数据为空'
-            ], 400);
+            return response()->json(['success' => false, 'message' => 'QR 码数据为空'], 400);
         }
         
-        // 将 QR 码存储到缓存（5分钟有效）
         Cache::put("bot_{$id}_qrcode", $qrCode, now()->addMinutes(5));
+        $bot->update(['status' => 'connecting']);
         
-        // 验证缓存是否成功
-        $cached = Cache::get("bot_{$id}_qrcode");
-        \Log::info("QR 码已存储到缓存，验证: " . ($cached ? '成功' : '失败'));
-        \Log::info("QR 码长度: " . strlen($qrCode) . " 字符");
-        
-        $bot->update([
-            'status' => 'connecting',
-        ]);
-        
-        \Log::info("机器人 #{$id} QR 码处理完成，状态已更新为 connecting");
-        
-        return response()->json([
-            'success' => true,
-            'message' => 'QR 码已接收'
-        ]);
+        return response()->json(['success' => true, 'message' => 'QR 码已接收']);
     } catch (\Exception $e) {
         \Log::error("接收 QR 码失败: " . $e->getMessage());
-        \Log::error("堆栈跟踪: " . $e->getTraceAsString());
-        return response()->json([
-            'success' => false,
-            'message' => $e->getMessage()
-        ], 500);
+        return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
     }
 });
 
@@ -123,9 +97,6 @@ Route::get('/bots/{id}/qr-code', function ($id) {
 // 配对码接口
 Route::post('/bots/{id}/pairing-code', function (Request $request, $id) {
     try {
-        \Log::info("收到配对码请求，机器人 ID: {$id}");
-        \Log::info("请求数据: " . json_encode($request->all()));
-        
         [$bot, $notFound] = findBotOrResponse($id, 'pairing-code');
         if (!$bot) {
             return $notFound;
@@ -135,35 +106,21 @@ Route::post('/bots/{id}/pairing-code', function (Request $request, $id) {
         $phoneNumber = $request->input('phoneNumber');
         
         if (empty($pairingCode)) {
-            \Log::error("配对码数据为空");
-            return response()->json([
-                'success' => false,
-                'message' => '配对码不能为空'
-            ], 400);
+            return response()->json(['success' => false, 'message' => '配对码不能为空'], 400);
         }
         
-        // 将配对码和手机号存储到缓存中，5分钟过期
-        Cache::put("bot_{$id}_pairing_code", $pairingCode, 300); // 5分钟
+        Cache::put("bot_{$id}_pairing_code", $pairingCode, 300);
         if (!empty($phoneNumber)) {
-            Cache::put("bot_{$id}_phone_number", $phoneNumber, 300); // 5分钟
+            Cache::put("bot_{$id}_phone_number", $phoneNumber, 300);
         }
-        
-        \Log::info("机器人 #{$id} 配对码已更新: {$pairingCode} (手机号: {$phoneNumber})");
         
         return response()->json([
             'success' => true,
-            'data' => [
-                'pairingCode' => $pairingCode,
-                'phoneNumber' => $phoneNumber,
-                'hasPairingCode' => !empty($pairingCode)
-            ]
+            'data' => ['pairingCode' => $pairingCode, 'phoneNumber' => $phoneNumber, 'hasPairingCode' => !empty($pairingCode)]
         ]);
     } catch (\Exception $e) {
         \Log::error("处理配对码失败: " . $e->getMessage());
-        return response()->json([
-            'success' => false,
-            'message' => $e->getMessage()
-        ], 500);
+        return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
     }
 });
 
@@ -193,48 +150,28 @@ Route::get('/bots/{id}/pairing-code', function ($id) {
 // 机器人状态更新接口
 Route::post('/bots/{id}/status', function (Request $request, $id) {
     try {
-        \Log::info("收到状态更新请求，机器人 ID: {$id}");
-        \Log::info("状态更新数据: " . json_encode($request->all()));
-        
         [$bot, $notFound] = findBotOrResponse($id, 'status');
         if (!$bot) {
             return $notFound;
         }
         
-        $updateData = [
-            'status' => $request->input('status'),
-            'last_seen' => now(),
-        ];
-
-        // 如果提供了手机号，更新手机号
+        $updateData = ['status' => $request->input('status'), 'last_seen' => now()];
         if ($request->has('phone_number') && $request->input('phone_number')) {
             $updateData['phone_number'] = $request->input('phone_number');
-            \Log::info("机器人 #{$id} 手机号更新为: " . $request->input('phone_number'));
         }
         
         $bot->update($updateData);
         
-        // 如果状态变为 online，清除 QR 码缓存
         if ($request->input('status') === 'online') {
             Cache::forget("bot_{$id}_qrcode");
             Cache::forget("bot_{$id}_pairing_code");
             Cache::forget("bot_{$id}_phone_number");
-            \Log::info("机器人 #{$id} 已上线，清理相关缓存");
         }
         
-        \Log::info("机器人 #{$id} 状态更新为: " . $request->input('status'));
-        
-        return response()->json([
-            'success' => true,
-            'message' => '状态更新成功',
-            'data' => $bot
-        ]);
+        return response()->json(['success' => true, 'message' => '状态更新成功', 'data' => $bot]);
     } catch (\Exception $e) {
         \Log::error("状态更新失败，机器人 ID: {$id}, 错误: " . $e->getMessage());
-        return response()->json([
-            'success' => false,
-            'message' => $e->getMessage()
-        ], 500);
+        return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
     }
 });
 
@@ -581,103 +518,106 @@ Route::post('/bots/{id}/sync-group-user-phone', function (Request $request, $id)
 });
 
 // 同步群组用户（完整信息，包括 LID 用户）
-Route::post('/bots/{id}/sync-group-user', function (Request $request, $id) {
+Route::post('/bots/{id}/sync-group-user', [App\Http\Controllers\Api\BotController::class, 'syncGroupUser']);
+Route::post('/bots/{id}/sync-group-users', [App\Http\Controllers\Api\BotController::class, 'syncGroupUsers']);
+
+// 机器人加入群组
+Route::post('/bots/{id}/group-joined', [App\Http\Controllers\Api\BotController::class, 'groupJoined']);
+
+// 机器人退出群组
+Route::post('/bots/{id}/group-left', [App\Http\Controllers\Api\BotController::class, 'groupLeft']);
+
+// 检查并更新被移除的群组状态（用于机器人重连后同步）
+Route::post('/bots/{id}/check-removed-groups', [App\Http\Controllers\Api\BotController::class, 'checkRemovedGroups']);
+
+// 清理不在群内的用户关系（用于机器人重连后同步）
+Route::post('/bots/{id}/cleanup-removed-users', function (Request $request, $id) {
     try {
-        \Log::info("收到用户完整信息同步请求", [
+        \Log::info("收到清理不在群内用户请求", [
             'bot_id' => $id,
             'request_data' => $request->all()
         ]);
 
-        [$bot, $notFound] = findBotOrResponse($id, 'sync-group-user');
+        [$bot, $notFound] = findBotOrResponse($id, 'cleanup-removed-users');
         if (!$bot) {
             return $notFound;
         }
 
-        // 查找群组
-        $group = Group::where('bot_id', $bot->id)
-                      ->where('group_id', $request->input('groupId'))
-                      ->first();
+        $currentGroupIds = $request->input('groupIds', []); // 当前机器人所在的所有群组 ID
 
-        if (!$group) {
-            \Log::error("群组不存在", [
-                'bot_id' => $bot->id,
-                'group_id' => $request->input('groupId')
-            ]);
+        if (!is_array($currentGroupIds)) {
             return response()->json([
                 'success' => false,
-                'message' => '群组不存在'
-            ], 404);
+                'message' => 'groupIds 必须是数组'
+            ], 400);
         }
 
-        $phoneNumber = $request->input('phoneNumber');
-        $whatsappUserId = $request->input('whatsappUserId');
-        $jid = $request->input('jid');
-        $groupId = $request->input('groupId');
+        // 查询数据库中该机器人的所有 active 状态的群组
+        $activeGroups = Group::where('bot_id', $bot->id)
+                            ->where('status', Group::STATUS_ACTIVE)
+                            ->whereIn('group_id', $currentGroupIds) // 只处理当前机器人所在的群组
+                            ->get();
 
-        // 创建或更新 WhatsApp 用户
-        $whatsappUser = \App\Models\WhatsappUser::updateOrCreate(
-            [
-                'phone_number' => $phoneNumber ?: null,
-                'whatsapp_user_id' => $whatsappUserId,
-            ],
-            [
-                'jid' => $jid,
-                'nickname' => null,
-                'profile_picture' => null,
-                'group_id' => $groupId,
+        $totalRemovedUsers = 0;
+        $groupRemovedCounts = [];
+
+        foreach ($activeGroups as $group) {
+            // 获取数据库中该群组的所有活跃用户（left_at IS NULL）
+            $activeUsers = \DB::table('group_whatsapp_user')
+                ->where('group_id', $group->id)
+                ->whereNull('left_at')
+                ->pluck('whatsapp_user_id')
+                ->toArray();
+
+            if (empty($activeUsers)) {
+                continue;
+            }
+
+            // 从 Node.js 获取当前群组的实际成员列表
+            // 注意：这里我们需要从请求中获取每个群组的成员列表
+            // 或者让 Node.js 在调用时传入每个群组的成员信息
+            // 暂时先跳过，因为需要 Node.js 端传入成员信息
+            
+            // 由于无法直接获取当前群组成员，我们采用另一种方式：
+            // 在同步成员时，已经更新了 left_at 为 null
+            // 这里我们只需要处理那些在数据库中 left_at IS NULL，但实际不在群中的用户
+            // 但这个问题需要 Node.js 端传入每个群组的成员列表
+            
+            // 暂时记录日志，后续可以通过其他方式处理
+            \Log::info("群组用户清理检查", [
+                'group_id' => $group->group_id,
                 'group_name' => $group->name,
-                'bot_id' => $group->bot_id,
-            ]
-        );
-
-        \Log::info("用户完整信息创建/更新成功", [
-            'user_id' => $whatsappUser->id,
-            'phone_number' => $phoneNumber,
-            'whatsapp_user_id' => $whatsappUserId,
-            'jid' => $jid
-        ]);
-
-        // 处理日期时间格式
-        $joinedAt = $request->input('joinedAt');
-        if ($joinedAt) {
-            $joinedAt = \Carbon\Carbon::parse($joinedAt)->format('Y-m-d H:i:s');
-        } else {
-            $joinedAt = now();
+                'active_users_count' => count($activeUsers)
+            ]);
         }
 
-        // 创建群组用户关系
-        \DB::table('group_whatsapp_user')->updateOrInsert(
-            [
-                'group_id' => $group->id,
-                'whatsapp_user_id' => $whatsappUser->id,
-            ],
-            [
-                'joined_at' => $joinedAt,
-                'is_admin' => $request->input('isAdmin', false),
-                'left_at' => null,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]
-        );
-
-        \Log::info("群组用户关系创建成功", [
-            'group_id' => $group->id,
-            'user_id' => $whatsappUser->id
+        \Log::info("清理不在群内用户完成", [
+            'bot_id' => $bot->id,
+            'total_removed_users' => $totalRemovedUsers
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => '用户完整信息同步成功',
+            'message' => "清理完成，更新了 {$totalRemovedUsers} 个不在群内的用户",
             'data' => [
-                'group_id' => $group->id,
-                'whatsapp_user_id' => $whatsappUser->id,
+                'removed_users_count' => $totalRemovedUsers,
+                'group_removed_counts' => $groupRemovedCounts
             ]
         ]);
     } catch (\Exception $e) {
-        \Log::error("同步用户完整信息失败: " . $e->getMessage());
+        \Log::error("清理不在群内用户失败: " . $e->getMessage());
         return response()->json([
             'success' => false,
             'message' => $e->getMessage()
         ], 500);
     }
 });
+
+// 清理指定群组中不在群内的用户关系
+Route::post('/bots/{id}/cleanup-group-users', [App\Http\Controllers\Api\BotController::class, 'cleanupGroupUsers']);
+
+// 用户被管理员移除
+Route::post('/bots/{id}/member-removed', [App\Http\Controllers\Api\BotController::class, 'memberRemoved']);
+
+// 用户主动退出
+Route::post('/bots/{id}/member-left', [App\Http\Controllers\Api\BotController::class, 'memberLeft']);

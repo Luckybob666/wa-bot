@@ -32,12 +32,8 @@ class BotForm
                     ->disabled()
                     ->visible(fn ($record) => $record !== null),
                 
-                Select::make('status')
-                    ->label('状态')
-                    ->options(Bot::getStatusOptions())
-                    ->default(Bot::STATUS_OFFLINE)
-                    ->required()
-                    ->disabled(fn ($record) => $record !== null), // 编辑时禁用状态选择
+                // 状态字段：创建和编辑时都不显示，由系统自动管理
+                // Select::make('status') - 已移除，状态由系统自动管理
                 
                 DateTimePicker::make('last_seen')
                     ->label('最后活跃时间')

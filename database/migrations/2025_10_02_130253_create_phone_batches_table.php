@@ -37,6 +37,14 @@ return new class extends Migration
             $table->index('phone_number');
             $table->unique(['phone_batch_id', 'phone_number'], 'batch_phone_unique');
         });
+
+        // 为 whatsapp_groups 表添加 phone_batch_id 外键约束
+        Schema::table('whatsapp_groups', function (Blueprint $table) {
+            $table->foreign('phone_batch_id')
+                ->references('id')
+                ->on('phone_batches')
+                ->onDelete('set null');
+        });
     }
 
     /**
@@ -44,6 +52,11 @@ return new class extends Migration
      */
     public function down(): void
     {
+        // 先删除 whatsapp_groups 表的外键约束
+        Schema::table('whatsapp_groups', function (Blueprint $table) {
+            $table->dropForeign(['phone_batch_id']);
+        });
+
         Schema::dropIfExists('phone_batch_numbers');
         Schema::dropIfExists('phone_batches');
     }

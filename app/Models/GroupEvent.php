@@ -34,7 +34,10 @@ class GroupEvent extends Model
      */
     const EVENT_MEMBER_JOINED = 'member_joined';
     const EVENT_MEMBER_LEFT = 'member_left';
+    const EVENT_MEMBER_REMOVED = 'member_removed';
     const EVENT_GROUP_UPDATED = 'group_updated';
+    const EVENT_BOT_JOINED_GROUP = 'bot_joined_group';
+    const EVENT_BOT_LEFT_GROUP = 'bot_left_group';
 
     /**
      * 获取所有事件类型选项
@@ -44,7 +47,10 @@ class GroupEvent extends Model
         return [
             self::EVENT_MEMBER_JOINED => '成员加入',
             self::EVENT_MEMBER_LEFT => '成员退出',
+            self::EVENT_MEMBER_REMOVED => '成员被移除',
             self::EVENT_GROUP_UPDATED => '群信息更新',
+            self::EVENT_BOT_JOINED_GROUP => '机器人加入群',
+            self::EVENT_BOT_LEFT_GROUP => '机器人退出群',
         ];
     }
 
@@ -86,12 +92,26 @@ class GroupEvent extends Model
     public function getDescriptionAttribute(): string
     {
         $groupName = $this->group->name ?? "群 {$this->group_id}";
-        $userName = $this->whatsappUser->display_name ?? '未知用户';
+        
+        // 优先从 event_data 中获取用户信息，如果没有则从关系获取
+        $eventData = $this->event_data ?? [];
+        $phoneNumber = $eventData['phone_number'] ?? null;
+        
+        // 如果 event_data 中没有，尝试从关系获取
+        if (!$phoneNumber && $this->whatsappUser) {
+            $phoneNumber = $this->whatsappUser->phone_number;
+        }
+        
+        // 如果有手机号，优先显示手机号；否则显示昵称或用户ID
+        $userDisplay = $phoneNumber ?: ($this->whatsappUser->display_name ?? ($eventData['whatsapp_user_id'] ?? '未知用户'));
 
         return match ($this->event_type) {
-            self::EVENT_MEMBER_JOINED => "用户 {$userName} 加入了群 {$groupName}",
-            self::EVENT_MEMBER_LEFT => "用户 {$userName} 退出了群 {$groupName}",
+            self::EVENT_MEMBER_JOINED => "用户 {$userDisplay} 加入了群 {$groupName}",
+            self::EVENT_MEMBER_LEFT => "用户 {$userDisplay} 退出了群 {$groupName}",
+            self::EVENT_MEMBER_REMOVED => "用户 {$userDisplay} 被管理员从群 {$groupName} 移除",
             self::EVENT_GROUP_UPDATED => "群 {$groupName} 的信息已更新",
+            self::EVENT_BOT_JOINED_GROUP => "机器人加入了群 {$groupName}",
+            self::EVENT_BOT_LEFT_GROUP => "机器人退出了群 {$groupName}",
             default => "群 {$groupName} 发生了未知事件",
         };
     }
@@ -104,7 +124,10 @@ class GroupEvent extends Model
         return match ($this->event_type) {
             self::EVENT_MEMBER_JOINED => 'heroicon-o-user-plus',
             self::EVENT_MEMBER_LEFT => 'heroicon-o-user-minus',
+            self::EVENT_MEMBER_REMOVED => 'heroicon-o-user-minus',
             self::EVENT_GROUP_UPDATED => 'heroicon-o-pencil-square',
+            self::EVENT_BOT_JOINED_GROUP => 'heroicon-o-check-circle',
+            self::EVENT_BOT_LEFT_GROUP => 'heroicon-o-x-circle',
             default => 'heroicon-o-information-circle',
         };
     }
@@ -117,7 +140,10 @@ class GroupEvent extends Model
         return match ($this->event_type) {
             self::EVENT_MEMBER_JOINED => 'success',
             self::EVENT_MEMBER_LEFT => 'danger',
+            self::EVENT_MEMBER_REMOVED => 'danger',
             self::EVENT_GROUP_UPDATED => 'warning',
+            self::EVENT_BOT_JOINED_GROUP => 'success',
+            self::EVENT_BOT_LEFT_GROUP => 'danger',
             default => 'gray',
         };
     }
@@ -169,11 +195,35 @@ class GroupEvent extends Model
     }
 
     /**
+     * 查询成员被移除事件
+     */
+    public function scopeMemberRemoved($query)
+    {
+        return $query->where('event_type', self::EVENT_MEMBER_REMOVED);
+    }
+
+    /**
      * 查询群更新事件
      */
     public function scopeGroupUpdated($query)
     {
         return $query->where('event_type', self::EVENT_GROUP_UPDATED);
+    }
+
+    /**
+     * 查询机器人加入群事件
+     */
+    public function scopeBotJoinedGroup($query)
+    {
+        return $query->where('event_type', self::EVENT_BOT_JOINED_GROUP);
+    }
+
+    /**
+     * 查询机器人退出群事件
+     */
+    public function scopeBotLeftGroup($query)
+    {
+        return $query->where('event_type', self::EVENT_BOT_LEFT_GROUP);
     }
 
     /**

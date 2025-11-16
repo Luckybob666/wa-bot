@@ -21,6 +21,7 @@ class ListWhatsappUsers extends ListRecords
     protected function getTableQuery(): Builder
     {
         return parent::getTableQuery()
-            ->with(['bot']); // 预加载机器人信息
+            ->with(['bot', 'group']) // 预加载机器人和群组信息
+            ->where('is_active', true); // 只显示在群内的活跃用户
     }
 }

@@ -25,28 +25,35 @@ class GroupEventsTable
                     ->label('群名称')
                     ->sortable()
                     ->searchable(),
-                TextColumn::make('whatsappUser.nickname')
+                TextColumn::make('user_display')
                     ->label('用户')
                     ->sortable()
                     ->searchable()
+                    ->getStateUsing(function (GroupEvent $record) {
+                        // 优先从 event_data 中获取用户信息
+                        $eventData = $record->event_data ?? [];
+                        $phoneNumber = $eventData['phone_number'] ?? null;
+                        
+                        if ($phoneNumber) {
+                            return $phoneNumber;
+                        }
+                        
+                        // 如果没有，从关系获取
+                        if ($record->whatsappUser) {
+                            return $record->whatsappUser->phone_number ?: $record->whatsappUser->display_name;
+                        }
+                        
+                        return '系统事件';
+                    })
                     ->placeholder('系统事件'),
                 TextColumn::make('event_type')
                     ->label('事件类型')
                     ->badge()
-                    ->color(fn (string $state): string => match ($state) {
-                        GroupEvent::EVENT_MEMBER_JOINED => 'success',
-                        GroupEvent::EVENT_MEMBER_LEFT => 'danger',
-                        GroupEvent::EVENT_GROUP_UPDATED => 'warning',
-                        default => 'gray',
-                    })
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        GroupEvent::EVENT_MEMBER_JOINED => '成员加入',
-                        GroupEvent::EVENT_MEMBER_LEFT => '成员离开',
-                        GroupEvent::EVENT_GROUP_UPDATED => '群信息更新',
-                        default => $state,
-                    }),
+                    ->color(fn (GroupEvent $record): string => $record->color)
+                    ->formatStateUsing(fn (GroupEvent $record): string => $record->event_type_label),
                 TextColumn::make('description')
                     ->label('描述')
+                    ->getStateUsing(fn (GroupEvent $record): string => $record->description)
                     ->limit(50)
                     ->tooltip(function (TextColumn $column): ?string {
                         $state = $column->getState();
@@ -59,14 +66,11 @@ class GroupEventsTable
                     ->since()
                     ->tooltip(fn ($record) => $record->created_at->format('Y-m-d H:i:s')),
             ])
+            ->defaultSort('created_at', 'desc')
             ->filters([
                 SelectFilter::make('event_type')
                     ->label('事件类型')
-                    ->options([
-                        GroupEvent::EVENT_MEMBER_JOINED => '成员加入',
-                        GroupEvent::EVENT_MEMBER_LEFT => '成员离开',
-                        GroupEvent::EVENT_GROUP_UPDATED => '群信息更新',
-                    ]),
+                    ->options(GroupEvent::getEventTypeOptions()),
                 SelectFilter::make('bot_id')
                     ->label('所属机器人')
                     ->relationship('bot', 'name')

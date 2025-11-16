@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -18,18 +17,26 @@ class WhatsappUser extends Model
     protected $fillable = [
         'phone_number',
         'whatsapp_user_id',
+        'lid',
         'jid',
         'nickname',
         'profile_picture',
         'group_id',
-        'group_name',
         'bot_id',
+        'left_at',
+        'is_active',
+        'is_admin',
+        'removed_by_admin',
     ];
 
     /**
      * 属性类型转换
      */
     protected $casts = [
+        'left_at' => 'datetime',
+        'is_active' => 'boolean',
+        'is_admin' => 'boolean',
+        'removed_by_admin' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -45,19 +52,9 @@ class WhatsappUser extends Model
     /**
      * 获取用户所属的群
      */
-    public function groups(): BelongsToMany
+    public function group(): BelongsTo
     {
-        return $this->belongsToMany(Group::class, 'group_whatsapp_user')
-            ->withPivot(['joined_at', 'left_at', 'is_admin'])
-            ->withTimestamps();
-    }
-
-    /**
-     * 获取用户当前所在的群（未退出的群）
-     */
-    public function activeGroups(): BelongsToMany
-    {
-        return $this->groups()->wherePivotNull('left_at');
+        return $this->belongsTo(Group::class);
     }
 
     /**
@@ -81,41 +78,22 @@ class WhatsappUser extends Model
      */
     public function getDisplayNameAttribute(): string
     {
-        return $this->nickname ?: $this->phone_number;
+        return $this->nickname ?: $this->phone_number ?: $this->whatsapp_user_id ?: '未设置昵称';
     }
 
     /**
      * 检查用户是否为群管理员
      */
-    public function isAdminOf(Group $group): bool
+    public function isAdmin(): bool
     {
-        $pivot = $this->groups()->where('group_id', $group->id)->first()?->pivot;
-        return $pivot ? (bool) $pivot->is_admin : false;
+        return $this->is_admin;
     }
 
     /**
-     * 获取用户加入群的时间
+     * 检查用户是否在群内（活跃状态）
      */
-    public function getJoinedAtForGroup(Group $group): ?\Carbon\Carbon
+    public function isActive(): bool
     {
-        $pivot = $this->groups()->where('group_id', $group->id)->first()?->pivot;
-        return $pivot ? $pivot->joined_at : null;
-    }
-
-    /**
-     * 获取用户退出群的时间
-     */
-    public function getLeftAtForGroup(Group $group): ?\Carbon\Carbon
-    {
-        $pivot = $this->groups()->where('group_id', $group->id)->first()?->pivot;
-        return $pivot ? $pivot->left_at : null;
-    }
-
-    /**
-     * 检查用户是否在指定群中
-     */
-    public function isInGroup(Group $group): bool
-    {
-        return $this->activeGroups()->where('group_id', $group->id)->exists();
+        return $this->is_active;
     }
 }
