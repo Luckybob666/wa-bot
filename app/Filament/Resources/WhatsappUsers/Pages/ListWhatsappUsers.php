@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\WhatsappUsers\Pages;
 
 use App\Filament\Resources\WhatsappUsers\WhatsappUserResource;
-use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -11,11 +10,10 @@ class ListWhatsappUsers extends ListRecords
 {
     protected static string $resource = WhatsappUserResource::class;
 
+    // WhatsApp 用户列表由机器人同步生成，禁止手动创建
     protected function getHeaderActions(): array
     {
-        return [
-            CreateAction::make(),
-        ];
+        return [];
     }
 
     protected function getTableQuery(): Builder
