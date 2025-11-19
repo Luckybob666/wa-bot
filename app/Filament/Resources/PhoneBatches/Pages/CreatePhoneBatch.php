@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\PhoneBatches\Pages;
 
 use App\Filament\Resources\PhoneBatches\PhoneBatchResource;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
 
@@ -34,14 +35,34 @@ class CreatePhoneBatch extends CreateRecord
         $record = static::getModel()::create([
             'name' => $data['name'],
             'description' => $data['description'],
-            'total_count' => $data['total_count'],
-            'processed_count' => $data['processed_count'],
-            'status' => $data['status'],
+            'total_count' => $data['total_count'] ?? 0,
+            'processed_count' => 0, // 初始为0，导入完成后更新
+            'status' => 'processing', // 初始状态为处理中
         ]);
         
         // 如果有手机号，处理并保存到明细表
-        if (isset($data['phone_numbers']) && is_array($data['phone_numbers'])) {
-            $record->setPhoneNumbers($data['phone_numbers']);
+        if (isset($data['phone_numbers']) && is_array($data['phone_numbers']) && !empty($data['phone_numbers'])) {
+            try {
+                $record->setPhoneNumbers($data['phone_numbers']);
+                
+                // 导入成功，显示通知
+                $count = count($data['phone_numbers']);
+                Notification::make()
+                    ->title('导入成功')
+                    ->body("成功导入 {$count} 个手机号")
+                    ->success()
+                    ->send();
+            } catch (\Exception $e) {
+                // 导入失败，显示错误通知
+                Notification::make()
+                    ->title('导入失败')
+                    ->body('手机号导入过程中发生错误：' . $e->getMessage())
+                    ->danger()
+                    ->send();
+                
+                // 重新抛出异常，让 Filament 知道创建失败
+                throw $e;
+            }
         }
         
         return $record;

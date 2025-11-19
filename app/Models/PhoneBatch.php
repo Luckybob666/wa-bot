@@ -119,9 +119,15 @@ class PhoneBatch extends Model
 
     /**
      * 设置手机号列表并更新计数
+     * 支持大批量导入，使用分批插入避免内存和超时问题
      */
     public function setPhoneNumbers(array $phoneNumbers): void
     {
+        // 对于大批量导入，尝试增加执行时间限制（如果服务器允许）
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0); // 0 表示无限制
+        }
+        
         // 先删除现有的手机号
         $this->phoneNumbers()->delete();
         
@@ -137,25 +143,76 @@ class PhoneBatch extends Model
         // 去重
         $cleanNumbers = array_unique($cleanNumbers);
         
-        // 批量插入手机号
-        $batchNumbers = [];
-        foreach ($cleanNumbers as $phoneNumber) {
-            $batchNumbers[] = [
+        // 如果没有任何有效号码，直接返回
+        if (empty($cleanNumbers)) {
+            $this->total_count = 0;
+            $this->processed_count = 0;
+            $this->status = self::STATUS_PENDING;
+            $this->save();
+            return;
+        }
+        
+        // 使用事务确保数据一致性
+        \DB::beginTransaction();
+        
+        try {
+            // 分批插入，每批1000条，避免一次性插入过多数据
+            // 可以根据实际情况调整批次大小
+            $batchSize = 1000;
+            $chunks = array_chunk($cleanNumbers, $batchSize);
+            $now = now();
+            
+            foreach ($chunks as $index => $chunk) {
+                $batchNumbers = [];
+                foreach ($chunk as $phoneNumber) {
+                    $batchNumbers[] = [
+                        'phone_batch_id' => $this->id,
+                        'phone_number' => $phoneNumber,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
+                }
+                
+                // 分批插入
+                \DB::table('phone_batch_numbers')->insert($batchNumbers);
+                
+                // 每处理10批，更新一次进度（可选，用于显示进度）
+                if (($index + 1) % 10 === 0) {
+                    // 可以在这里更新进度，但为了性能，暂时不更新
+                    // $this->processed_count = ($index + 1) * $batchSize;
+                    // $this->save();
+                }
+            }
+            
+            // 提交事务
+            \DB::commit();
+            
+            // 更新批次统计信息
+            $this->total_count = count($cleanNumbers);
+            $this->processed_count = count($cleanNumbers);
+            $this->status = self::STATUS_COMPLETED;
+            $this->save();
+            
+        } catch (\Exception $e) {
+            // 回滚事务
+            \DB::rollBack();
+            
+            // 记录错误并更新状态
+            \Log::error('批量导入手机号失败', [
                 'phone_batch_id' => $this->id,
-                'phone_number' => $phoneNumber,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ];
+                'total_numbers' => count($cleanNumbers),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            
+            $this->total_count = count($cleanNumbers);
+            $this->processed_count = 0;
+            $this->status = self::STATUS_FAILED;
+            $this->save();
+            
+            // 重新抛出异常，让调用者知道导入失败
+            throw $e;
         }
-        
-        if (!empty($batchNumbers)) {
-            \DB::table('phone_batch_numbers')->insert($batchNumbers);
-        }
-        
-        $this->total_count = count($cleanNumbers);
-        $this->processed_count = count($cleanNumbers); // 创建时已处理完成
-        $this->status = self::STATUS_COMPLETED; // 创建完成即标记为已完成
-        $this->save();
     }
 
     /**
